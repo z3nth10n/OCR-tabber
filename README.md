@@ -5,8 +5,8 @@ An app that scans input images containing guitar tabs and spits out their ASCII 
 ## Requirements
 
 - Python 3.9+.
-- The Tesseract OCR engine and trained data files for the languages you plan to use.
-- Python bindings that expose the `tesseract.TessBaseAPI` interface (the original [python-tesseract](https://code.google.com/p/python-tesseract/) bindings work, as do modern forks that support Python 3).
+- The Tesseract OCR engine and trained data files for the languages you plan to use. The CLI executable is auto-detected from common install locations (including `C:\Program Files\Tesseract-OCR`), or you can pass `--tesseract-cmd`.
+- Python dependencies: `pip install -r requirements.txt` (installs Pillow and pytesseract).
 
 Place the `tessdata` directory (or a symbolic link to it) next to `ocr-tab.py`, or pass `--tessdata` to point to your installation.
 
@@ -20,9 +20,9 @@ This reads the XML database shipped with Gnome Guitar and creates a compact pick
 
 ### OCR a tab image
 ```
-python src/ocr-tab.py <path-to-image> --tessdata path/to/tessdata --language eng
+python src/ocr-tab.py data/sample-tab.png --tessdata path/to/tessdata --language eng
 ```
-`ocr-tab.py` restricts recognition to characters typically found in guitar tabs and prints the ASCII tab to stdout.
+`ocr-tab.py` restricts recognition to characters typically found in guitar tabs and prints the ASCII tab to stdout. Pass `--tesseract-cmd` if your executable lives in a non-standard location; use `--whitelist` and `--psm` to tune recognition.
 
 ### Recognize chords in an ASCII tab
 ```
