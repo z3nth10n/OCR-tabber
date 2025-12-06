@@ -8,10 +8,10 @@ import shutil
 import sys
 from typing import Iterable
 
-from PIL import Image
+from PIL import Image, ImageFilter, ImageOps
 import pytesseract
 
-DEFAULT_WHITELIST = "0123456789ABCDEFGabcdefghp-/\\|"
+DEFAULT_WHITELIST = "0123456789ABCDEFGabcdefghp-/\\|PM.:,()_ \n|-=<>"
 
 
 def resolve_tesseract_cmd(user_value: Path | None) -> Path:
@@ -37,13 +37,47 @@ def resolve_tesseract_cmd(user_value: Path | None) -> Path:
     raise FileNotFoundError("Could not locate the tesseract executable. Install Tesseract OCR or provide --tesseract-cmd.")
 
 
+def preprocess_image(
+    image_path: Path,
+    scale: float,
+    threshold: int,
+    invert: bool,
+    median_filter_size: int,
+) -> Image.Image:
+    """Load and enhance the image so OCR is more accurate."""
+    image = Image.open(image_path)
+    image = ImageOps.grayscale(image)
+    if invert:
+        image = ImageOps.invert(image)
+    image = ImageOps.autocontrast(image)
+
+    if scale != 1.0:
+        new_size = (int(image.width * scale), int(image.height * scale))
+        image = image.resize(new_size, Image.Resampling.LANCZOS)
+
+    if threshold:
+        image = image.point(lambda p: 255 if p > threshold else 0)
+
+    if median_filter_size and median_filter_size > 1:
+        image = image.filter(ImageFilter.MedianFilter(size=median_filter_size))
+
+    image = ImageOps.expand(image, border=10, fill=255)
+    return image
+
+
 def run_ocr(
     image_path: Path,
     tessdata_path: Path | None,
     language: str,
     whitelist: str,
     psm: int,
+    oem: int,
     tesseract_cmd: Path | None,
+    scale: float,
+    threshold: int,
+    invert: bool,
+    median_filter_size: int,
+    debug_image: Path | None,
 ) -> str:
     """Run OCR over the supplied image and return the detected tab text."""
     resolved_cmd = resolve_tesseract_cmd(tesseract_cmd)
@@ -52,13 +86,16 @@ def run_ocr(
     if tessdata_path is not None:
         os.environ["TESSDATA_PREFIX"] = str(tessdata_path)
 
-    config_parts = [f"--psm {psm}"]
+    config_parts = [f"--psm {psm}", f"--oem {oem}", "-c preserve_interword_spaces=1"]
     if whitelist:
         config_parts.append(f"tessedit_char_whitelist={whitelist}")
     config = " ".join(config_parts)
 
-    with Image.open(image_path) as image:
-        return pytesseract.image_to_string(image, lang=language, config=config)
+    processed = preprocess_image(image_path, scale, threshold, invert, median_filter_size)
+    if debug_image:
+        debug_image.parent.mkdir(parents=True, exist_ok=True)
+        processed.save(debug_image)
+    return pytesseract.image_to_string(processed, lang=language, config=config)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -83,6 +120,43 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Page segmentation mode (default: 6, equivalent to SINGLE_BLOCK).",
     )
     parser.add_argument(
+        "--oem",
+        type=int,
+        default=1,
+        help="OCR Engine mode (default: 1, neural nets).",
+    )
+    parser.add_argument(
+        "--scale",
+        type=float,
+        default=3.5,
+        help="Scale factor applied before OCR (default: 3.5).",
+    )
+    parser.add_argument(
+        "--threshold",
+        type=int,
+        default=140,
+        help="Threshold for binarization (0 disables).",
+    )
+    parser.add_argument(
+        "--invert",
+        dest="invert",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Invert colors before thresholding (default: True).",
+    )
+    parser.add_argument(
+        "--median-filter",
+        type=int,
+        default=3,
+        help="Median filter kernel size to reduce noise (default: 3, 0 disables).",
+    )
+    parser.add_argument(
+        "--debug-image",
+        type=Path,
+        default=None,
+        help="Optional path to store the preprocessed image for debugging.",
+    )
+    parser.add_argument(
         "--tesseract-cmd",
         type=Path,
         default=None,
@@ -93,7 +167,20 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
-    result = run_ocr(args.image, args.tessdata, args.language, args.whitelist, args.psm, args.tesseract_cmd)
+    result = run_ocr(
+        args.image,
+        args.tessdata,
+        args.language,
+        args.whitelist,
+        args.psm,
+        args.oem,
+        args.tesseract_cmd,
+        args.scale,
+        args.threshold,
+        args.invert,
+        args.median_filter,
+        args.debug_image,
+    )
     print("OCRed tab -")
     print(result)
     return 0
