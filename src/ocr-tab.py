@@ -1,32 +1,48 @@
-# Copyright 2014 Utkarsh Jaiswal
+from __future__ import annotations
 
-# Scans an input image containing a guitar tab and converts it into ASCII
-# Adopted from the Python Tesseract project - https://code.google.com/p/python-tesseract/
-
-import tesseract
+"""Guitar tab OCR helper."""
+import argparse
+from pathlib import Path
 import sys
 
-api = tesseract.TessBaseAPI()
+try:
+    import tesseract
+except ImportError as exc:  # pragma: no cover
+    raise SystemExit("The 'tesseract' module is required. Install python-tesseract/tesserocr.") from exc
 
-# Initialize Tesseract to recognize English characters
-# The first argument must point to your tessdata/ folder that contains trained data
-# and configs for the language you're using
-api.Init(".", "eng", tesseract.OEM_DEFAULT)
 
-# Set a character whitelist to improve accuracy
-# The list used here restricts characters to ones found in guitar tabs
-api.SetVariable("tessedit_char_whitelist", "0123456789ABCDEFGabcdefghp-\/|")
+def run_ocr(image_path: Path, tessdata_path: Path, language: str) -> str:
+    """Run OCR over the supplied image and return the detected tab text."""
+    api = tesseract.TessBaseAPI()
+    try:
+        api.Init(str(tessdata_path), language, tesseract.OEM_DEFAULT)
+        api.SetVariable("tessedit_char_whitelist", "0123456789ABCDEFGabcdefghp-/\\|")
+        api.SetPageSegMode(tesseract.PSM_SINGLE_BLOCK)
+        buffer = image_path.read_bytes()
+        result = tesseract.ProcessPagesBuffer(buffer, len(buffer), api)
+    finally:
+        api.End()
 
-# Set a page segmentation mode to improve accuracy
-# Further details can be found at - http://fossies.org/dox/tesseract-ocr-3.02.02/namespacetesseract.html#a338d4c8b5d497b5ec3e6e4269d8ac66a
-api.SetPageSegMode(tesseract.PSM_SINGLE_BLOCK)
+    if isinstance(result, bytes):
+        return result.decode("utf-8", errors="replace")
+    return str(result)
 
-mImgFile = sys.argv[1]
-mBuffer = open(mImgFile, "rb").read()
 
-result = tesseract.ProcessPagesBuffer(mBuffer, len(mBuffer), api)
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Scan guitar tab images and output ASCII tabs.")
+    parser.add_argument("image", type=Path, help="Path to the image containing the guitar tab.")
+    parser.add_argument("--tessdata", type=Path, default=Path("."), help="Directory containing tessdata files.")
+    parser.add_argument("--language", default="eng", help="Tesseract language to use (default: eng).")
+    return parser.parse_args(argv)
 
-print "OCRed tab -"
-print result
 
-api.End()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv if argv is not None else sys.argv[1:])
+    result = run_ocr(args.image, args.tessdata, args.language)
+    print("OCRed tab -")
+    print(result)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

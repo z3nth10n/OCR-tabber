@@ -1,39 +1,53 @@
-# Copyright 2014 Utkarsh Jaiswal
+from __future__ import annotations
 
-# Utility script to parse the XML chord database packaged with Gnome Guitar (http://gnome-chord.sourceforge.net/)
-# It extracts relevant info (chord names, fret positions) while leaving out the rest
-# Fret positions are always extracted from thickest to thinnest string (EADGBE for standard E tuning)
-
-import xml.etree.ElementTree as ET
-import json
+"""Extract and pickle chord data from the bundled XML database."""
+import argparse
 import pickle
+from pathlib import Path
+import xml.etree.ElementTree as ET
 
-tree = ET.parse('../data/mainDB.xml') # input database (XML format)
-root = tree.getroot()
+DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+DEFAULT_XML_PATH = DATA_DIR / "mainDB.xml"
+DEFAULT_PKL_PATH = DATA_DIR / "mainDB.pkl"
 
-# A dictionary can't be used here since the database contains multiple fingerings for each chord
-chordList = [] 
 
-for child in root: # attribute - chord
-	chordName = child.attrib['name']
-	
-	# A dictionary can't be used here since multiple strings are often tuned to the same note, albeit in different octaves
-	# Hence, unique keys aren't possible
-	# Instead, a single string is used with whitespaces
-	# Eg - The C major chord will be denoted as 'E None A 3 D 2 G 0 B 1 E 0'
-	chordFrets = ''
-	for gStr in child.findall('./voiceing/guitarString'):
-		# append the string tuning and fret number to the fret data for the current chord
-		if (gStr[2].text):
-			chordFrets += str(gStr[0].text) + ' ' + str(gStr[2].text) + ' '
+def extract_chords(xml_path: Path) -> list[list[str]]:
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    chord_list: list[list[str]] = []
 
-	chordList.append([chordName, chordFrets])
+    for child in root:
+        chord_name = child.attrib.get("name", "")
+        chord_frets = []
+        for g_str in child.findall("./voiceing/guitarString"):
+            tuning = g_str[0].text
+            fret = g_str[2].text
+            if tuning and fret:
+                chord_frets.append(f"{tuning} {fret} ")
+        chord_list.append([chord_name, "".join(chord_frets)])
 
-#for item in chordList:
-#	print item[0], ',', item[1]
+    return chord_list
 
-#print len(chordList)
 
-# Pickle the chord list to file
-with open('../data/mainDB.pkl', 'wb') as outfile:
-	pickle.dump(chordList, outfile)
+def write_pickle(chords: list[list[str]], output_path: Path) -> None:
+    with output_path.open("wb") as outfile:
+        pickle.dump(chords, outfile, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Extract a compact pickle from the XML chord DB.")
+    parser.add_argument("--xml", type=Path, default=DEFAULT_XML_PATH, help="Path to the input XML database (default: data/mainDB.xml).")
+    parser.add_argument("--out", type=Path, default=DEFAULT_PKL_PATH, help="Destination for the pickle (default: data/mainDB.pkl).")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    chord_list = extract_chords(args.xml)
+    write_pickle(chord_list, args.out)
+    print(f"Extracted {len(chord_list)} chords to {args.out}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
