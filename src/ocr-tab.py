@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 """Guitar tab OCR helper."""
@@ -16,7 +17,8 @@ from PIL import Image, ImageFilter, ImageOps
 import pytesseract
 from pytesseract import Output
 
-DEFAULT_WHITELIST = "0123456789ABCDEFGabcdefghp-/\\|PM.:,()_ \n|-=<>"
+DEFAULT_WHITELIST = "0123456789ABCDEFGabcdefghp-/\\|PM.:,()_ " + "\n|-=<>"
+
 
 @dataclass
 class OCRToken:
@@ -43,7 +45,7 @@ class OCRToken:
     def center_y(self) -> float:
         return self.top + self.height / 2
 
-    def merge(self, other: 'OCRToken') -> 'OCRToken':
+    def merge(self, other: OCRToken) -> OCRToken:
         new_left = min(self.left, other.left)
         new_top = min(self.top, other.top)
         new_right = max(self.right, other.right)
@@ -99,6 +101,7 @@ class AxisColumn:
 
 STRING_ORDER = ["e", "B", "G", "D", "A", "E"]
 
+
 def resolve_tesseract_cmd(user_value: Path | None) -> Path:
     """Return the path to the Tesseract executable, if it exists."""
     if user_value is not None:
@@ -123,31 +126,31 @@ def resolve_tesseract_cmd(user_value: Path | None) -> Path:
 
 
 def preprocess_image(
-    image_path: Path,
+    image: Image.Image,
     scale: float,
     threshold: int,
     invert: bool,
     median_filter_size: int,
 ) -> Image.Image:
     """Load and enhance the image so OCR is more accurate."""
-    image = Image.open(image_path)
-    image = ImageOps.grayscale(image)
+    working = image.copy()
+    working = ImageOps.grayscale(working)
     if invert:
-        image = ImageOps.invert(image)
-    image = ImageOps.autocontrast(image)
+        working = ImageOps.invert(working)
+    working = ImageOps.autocontrast(working)
 
     if scale != 1.0:
-        new_size = (int(image.width * scale), int(image.height * scale))
-        image = image.resize(new_size, Image.Resampling.LANCZOS)
+        new_size = (int(working.width * scale), int(working.height * scale))
+        working = working.resize(new_size, Image.Resampling.LANCZOS)
 
     if threshold:
-        image = image.point(lambda p: 255 if p > threshold else 0)
+        working = working.point(lambda p: 255 if p > threshold else 0)
 
     if median_filter_size and median_filter_size > 1:
-        image = image.filter(ImageFilter.MedianFilter(size=median_filter_size))
+        working = working.filter(ImageFilter.MedianFilter(size=median_filter_size))
 
-    image = ImageOps.expand(image, border=10, fill=255)
-    return image
+    working = ImageOps.expand(working, border=10, fill=255)
+    return working
 
 
 def extract_ocr_tokens(image: Image.Image, language: str, config: str) -> list[OCRToken]:
@@ -174,6 +177,7 @@ def extract_ocr_tokens(image: Image.Image, language: str, config: str) -> list[O
             )
         )
     return tokens
+
 
 def _fill_missing_positions(values: list[int | None], image_height: int) -> list[int]:
     filled = values[:]
@@ -232,26 +236,63 @@ def _merge_close_positions(values: list[int], tolerance: int = 8) -> list[int]:
 
 
 def detect_measure_boundaries(image_array: np.ndarray, tab_top: int, tab_bottom: int) -> list[int]:
-    """Detect vertical barlines with simple morphology."""
+    """Detect vertical barlines using morphology with a column-density fallback."""
     height, width = image_array.shape[:2]
     top = max(0, min(tab_top, height - 1))
     bottom = max(top + 1, min(tab_bottom, height))
     roi = image_array[top:bottom, :]
+    if roi.size == 0:
+        roi = image_array
     blur = cv2.GaussianBlur(roi, (3, 3), 0)
     _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     kernel_height = max(10, (bottom - top) // 2)
     vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, kernel_height))
-    detected = cv2.erode(thresh, vertical_kernel, iterations=1)
-    detected = cv2.dilate(detected, vertical_kernel, iterations=2)
-    contours, _ = cv2.findContours(detected, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    binary = (thresh > 0).astype(np.uint8)
+    vertical_mask = cv2.morphologyEx(binary, cv2.MORPH_OPEN, vertical_kernel)
+    contours, _ = cv2.findContours((vertical_mask * 255).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     xs: list[int] = []
     for contour in contours:
         x, _, w, h = cv2.boundingRect(contour)
         if h < int((bottom - top) * 0.6):
             continue
         xs.append(int(x + w / 2))
-    xs.sort()
-    return _merge_close_positions(xs, tolerance=12)
+    xs = _merge_close_positions(sorted(xs), tolerance=10)
+
+    binary = (thresh > 0).astype(np.uint8)
+    col_density = binary.sum(axis=0) / max(1, binary.shape[0])
+    projection_candidates = np.where(col_density > 0.1)[0]
+    projection_xs: list[int] = []
+    if projection_candidates.size:
+        segments: list[tuple[int, int]] = []
+        start = int(projection_candidates[0])
+        prev = start
+        for value in projection_candidates[1:]:
+            value = int(value)
+            if value - prev > 2:
+                segments.append((start, prev))
+                start = value
+            prev = value
+        segments.append((start, prev))
+        projection_xs = [int((seg_start + seg_end) / 2) for seg_start, seg_end in segments if (seg_end - seg_start) >= 4]
+    if projection_xs:
+        xs = sorted(set(xs + projection_xs))
+    if xs:
+        xs = _merge_close_positions(sorted(xs), tolerance=20)
+
+    binary_roi = (thresh > 0).astype(np.uint8)
+    active_columns = np.where(binary_roi.sum(axis=0) > 0)[0]
+    if active_columns.size:
+        left_edge = max(0, int(active_columns[0]) - 4)
+        right_edge = min(width - 1, int(active_columns[-1]) + 4)
+    else:
+        left_edge, right_edge = 0, width - 1
+
+    boundaries = [left_edge]
+    for value in xs:
+        if left_edge < value < right_edge:
+            boundaries.append(int(value))
+    boundaries.append(right_edge)
+    return sorted(set(boundaries))
 
 
 def locate_measure_index(boundaries: list[int], x_value: float) -> int | None:
@@ -264,22 +305,83 @@ def locate_measure_index(boundaries: list[int], x_value: float) -> int | None:
             return idx
     return len(boundaries) - 2
 
+
+def infer_boundaries_from_notes(tokens: list[OCRToken], fallback_left: int, fallback_right: int) -> list[int]:
+    note_xs = sorted(int(token.center_x) for token in tokens if normalize_fret_text(token.text))
+    if not note_xs:
+        return [fallback_left, fallback_right]
+    unique_positions = _merge_close_positions(note_xs, tolerance=8)
+    if len(unique_positions) == 1:
+        return [fallback_left, fallback_right]
+    diffs = [b - a for a, b in zip(unique_positions, unique_positions[1:])]
+    avg_gap = sum(diffs) / len(diffs)
+    gap_threshold = max(80, int(avg_gap * 1.2))
+    boundaries = [fallback_left]
+    for idx, gap in enumerate(diffs):
+        if gap >= gap_threshold:
+            midpoint = int((unique_positions[idx] + unique_positions[idx + 1]) / 2)
+            boundaries.append(midpoint)
+    boundaries.append(fallback_right)
+    return sorted(set(boundaries))
+
+
+def detect_tab_regions(array: np.ndarray, row_threshold: float = 0.05, min_region_height: int = 120, margin: int = 24) -> list[tuple[int, int, int, int]]:
+    """Locate rectangular regions that likely contain full tab staves."""
+    if array.ndim == 3:
+        gray = cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = array
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    height, width = thresh.shape
+    row_density = (thresh > 0).sum(axis=1) / width
+    active = row_density > row_threshold
+    segments: list[tuple[int, int]] = []
+    start: int | None = None
+    for idx, val in enumerate(active):
+        if val and start is None:
+            start = idx
+        elif not val and start is not None:
+            if idx - start >= min_region_height:
+                segments.append((max(0, start - margin), min(height, idx + margin)))
+            start = None
+    if start is not None and height - start >= min_region_height:
+        segments.append((max(0, start - margin), height))
+
+    boxes: list[tuple[int, int, int, int]] = []
+    for top, bottom in segments:
+        segment = thresh[top:bottom, :]
+        col_density = (segment > 0).sum(axis=0) / max(1, segment.shape[0])
+        col_mask = col_density > (row_threshold / 2)
+        xs = np.where(col_mask)[0]
+        if xs.size:
+            left = max(0, int(xs[0]) - margin)
+            right = min(width, int(xs[-1]) + margin)
+        else:
+            left, right = 0, width
+        boxes.append((left, top, right, bottom))
+    boxes.sort(key=lambda box: box[1])
+    return boxes
+
+
 def build_geometry(processed: Image.Image, tokens: list[OCRToken]) -> TabGeometry:
     width, height = processed.size
     string_positions = detect_string_positions(tokens, width, height)
     tab_top = max(0, min(string_positions) - 40)
     tab_bottom = min(height, max(string_positions) + 40)
     image_array = np.array(processed)
+    note_positions = [int(token.center_x) for token in tokens if normalize_fret_text(token.text)]
+    if note_positions:
+        approx_left = max(0, min(note_positions) - 40)
+        approx_right = min(width, max(note_positions) + 40)
+    else:
+        approx_left, approx_right = 0, width
     boundaries = detect_measure_boundaries(image_array, tab_top, tab_bottom)
     if len(boundaries) < 2:
-        within = [int(token.center_x) for token in tokens if tab_top <= token.center_y <= tab_bottom]
-        if within:
-            left = max(0, min(within) - 20)
-            right = min(width, max(within) + 20)
-            boundaries = [left, right]
-        else:
-            boundaries = [int(width * 0.1), int(width * 0.9)]
+        boundaries = [approx_left, approx_right]
     boundaries = sorted(boundaries)
+    if len(boundaries) < 3 or len(boundaries) > 12:
+        boundaries = infer_boundaries_from_notes(tokens, approx_left, approx_right)
     tab_left = max(0, boundaries[0] - 6)
     tab_right = min(width, boundaries[-1] + 6)
     return TabGeometry(
@@ -292,14 +394,22 @@ def build_geometry(processed: Image.Image, tokens: list[OCRToken]) -> TabGeometr
     )
 
 
-def estimate_measure_columns(boundaries: list[int]) -> list[int]:
-    widths = [max(1, boundaries[idx + 1] - boundaries[idx]) for idx in range(len(boundaries) - 1)]
-    if not widths:
+def estimate_measure_columns(boundaries: list[int], tokens: list[OCRToken]) -> list[int]:
+    if len(boundaries) < 2:
         return [32]
-    avg_width = sum(widths) / len(widths)
-    pixels_per_char = avg_width / 27 if avg_width else 8.0
-    pixels_per_char = min(max(pixels_per_char, 4.0), 12.0)
-    return [max(8, int(round(width / pixels_per_char))) for width in widths]
+    measures = len(boundaries) - 1
+    base_columns = 27
+    columns = [base_columns for _ in range(measures)]
+    for token in tokens:
+        digits = normalize_fret_text(token.text)
+        if not digits:
+            continue
+        measure_index = locate_measure_index(boundaries, token.center_x)
+        if measure_index is None or measure_index >= measures:
+            continue
+        extra = max(0, len(digits) - 1)
+        columns[measure_index] += extra
+    return columns
 
 
 def map_x_to_column(x_value: float, boundaries: list[int], measure_index: int, cols_per_measure: list[int]) -> int:
@@ -402,6 +512,7 @@ def gather_palm_mutes(tokens: list[OCRToken], geometry: TabGeometry, cols_per_me
         column = map_x_to_column(token.center_x, geometry.measure_boundaries, measure_index, cols_per_measure)
         events.append(PalmMuteEvent(measure_index=measure_index, column=column))
     return events
+
 
 def build_axis(cols_per_measure: list[int], pad: int = 2) -> tuple[list[AxisColumn], list[int]]:
     columns: list[AxisColumn] = []
@@ -518,6 +629,7 @@ def render_ascii_tab(
     ]
     return '\n'.join(lines)
 
+
 def infer_bpm(tokens: list[OCRToken], tab_top: int) -> int | None:
     candidates: list[tuple[float, int]] = []
     for token in tokens:
@@ -554,11 +666,8 @@ def infer_time_signature(tokens: list[OCRToken], image_width: int) -> str | None
 
 
 def compose_tab(processed: Image.Image, tokens: list[OCRToken]) -> str:
-    validation_path = Path('examples/validation.txt')
-    if validation_path.exists():
-        return validation_path.read_text(encoding='utf-8')
     geometry = build_geometry(processed, tokens)
-    cols_per_measure = estimate_measure_columns(geometry.measure_boundaries)
+    cols_per_measure = estimate_measure_columns(geometry.measure_boundaries, tokens)
     columns, offsets = build_axis(cols_per_measure)
     note_events = gather_note_events(tokens, geometry, cols_per_measure)
     palm_events = gather_palm_mutes(tokens, geometry, cols_per_measure)
@@ -571,8 +680,9 @@ def compose_tab(processed: Image.Image, tokens: list[OCRToken]) -> str:
         metadata.time_signature = time_signature
     return render_ascii_tab(metadata, columns, offsets, cols_per_measure, note_events, palm_events)
 
+
 def run_ocr(
-    image_path: Path,
+    image: Image.Image,
     tessdata_path: Path | None,
     language: str,
     whitelist: str,
@@ -597,7 +707,7 @@ def run_ocr(
         config_parts.append(f"tessedit_char_whitelist={whitelist}")
     config = " ".join(config_parts)
 
-    processed = preprocess_image(image_path, scale, threshold, invert, median_filter_size)
+    processed = preprocess_image(image, scale, threshold, invert, median_filter_size)
     if debug_image:
         debug_image.parent.mkdir(parents=True, exist_ok=True)
         processed.save(debug_image)
@@ -674,24 +784,42 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
-    processed, tokens = run_ocr(
-        args.image,
-        args.tessdata,
-        args.language,
-        args.whitelist,
-        args.psm,
-        args.oem,
-        args.tesseract_cmd,
-        args.scale,
-        args.threshold,
-        args.invert,
-        args.median_filter,
-        args.debug_image,
-    )
-    tab_text = compose_tab(processed, tokens)
-    print(tab_text)
+    base_image = Image.open(args.image).convert('RGB')
+    regions = detect_tab_regions(np.array(base_image))
+    if not regions:
+        regions = [(0, 0, base_image.width, base_image.height)]
+
+    outputs: list[str] = []
+    total = len(regions)
+    for idx, (left, top, right, bottom) in enumerate(regions, start=1):
+        crop = base_image.crop((left, top, right, bottom))
+        debug_path: Path | None = None
+        if args.debug_image:
+            if total == 1:
+                debug_path = args.debug_image
+            else:
+                debug_path = args.debug_image.with_name(f"{args.debug_image.stem}-{idx}{args.debug_image.suffix}")
+        processed, tokens = run_ocr(
+            crop,
+            args.tessdata,
+            args.language,
+            args.whitelist,
+            args.psm,
+            args.oem,
+            args.tesseract_cmd,
+            args.scale,
+            args.threshold,
+            args.invert,
+            args.median_filter,
+            debug_path,
+        )
+        tab_text = compose_tab(processed, tokens)
+        outputs.append(f"=== Tab {idx} ===\n{tab_text}")
+
+    print("\n\n".join(outputs))
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
