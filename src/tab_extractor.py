@@ -3,12 +3,15 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
+import cv2
 import numpy as np
 import pytesseract
+from PIL import Image
 
 from tab_cv import (
     BoundingBox,
@@ -24,6 +27,19 @@ from tab_cv import (
 )
 
 STRING_NAMES = ["e", "B", "G", "D", "A", "E"]
+CONTENT_WIDTH = 146  # characters after the tuning prefix
+
+
+def resolve_tesseract_cmd() -> str:
+    candidates = [
+        shutil.which("tesseract"),
+        str(Path(os.environ.get("ProgramFiles", "")) / "Tesseract-OCR" / "tesseract.exe"),
+        str(Path(os.environ.get("ProgramFiles(x86)", "")) / "Tesseract-OCR" / "tesseract.exe"),
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return candidate
+    raise FileNotFoundError("Tesseract executable not found. Install Tesseract or adjust PATH.")
 
 
 @dataclass
@@ -36,8 +52,9 @@ class Note:
 
 
 class TabExtractor:
-    def __init__(self, width_chars: int = 145) -> None:
-        self.width_chars = width_chars
+    def __init__(self, content_width: int = CONTENT_WIDTH) -> None:
+        self.content_width = content_width
+        pytesseract.pytesseract.tesseract_cmd = resolve_tesseract_cmd()
 
     def extract(self, image_path: Path) -> str:
         image = load_image(image_path)
@@ -50,7 +67,7 @@ class TabExtractor:
         metadata = self._extract_metadata(image, tab_box)
         palm_line = self._build_palm_line(measure_positions)
         measure_line = self._build_measure_numbers(measure_positions)
-        string_lines = self._build_string_lines(notes, string_positions, measure_positions)
+        string_lines = self._build_string_lines(notes, measure_positions)
         timing_line = self._build_timing_line(measure_positions)
 
         lines = [
@@ -75,15 +92,20 @@ class TabExtractor:
     ) -> list[Note]:
         candidates = detect_note_candidates(gray, tab_box)
         notes: list[Note] = []
+        whitelist = "0123456789"
         for candidate in candidates:
             roi = candidate.image
-            config = "--psm 10 -c tessedit_char_whitelist=0123456789"
-            value = pytesseract.image_to_string(roi, config=config).strip()
+            expanded = cv2.resize(roi, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+            inverted = cv2.bitwise_not(expanded)
+            _, binary = cv2.threshold(inverted, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            pil_image = Image.fromarray(binary)
+            config = f"--psm 10 -c tessedit_char_whitelist={whitelist}"
+            value = pytesseract.image_to_string(pil_image, config=config).strip()
             if not value or not value.isdigit():
                 continue
             cx, cy = candidate.box.center
             string_index = int(np.argmin([abs(cy - y) for y in string_positions]))
-            if abs(cy - string_positions[string_index]) > tab_box.h * 0.15:
+            if abs(cy - string_positions[string_index]) > tab_box.h * 0.2:
                 continue
             measure_index = 0
             for i in range(len(measure_positions) - 1):
@@ -103,59 +125,56 @@ class TabExtractor:
         return notes
 
     def _build_palm_line(self, measure_positions: List[int]) -> str:
-        chars = [" "] * self.width_chars
-        blocks = ["PM----", "PM    PM"]
-        segment = 0
-        for start, end in zip(measure_positions[:-1], measure_positions[1:]):
-            col_start = scale_to_columns(start, measure_positions[0], measure_positions[-1], self.width_chars)
-            block = blocks[segment % len(blocks)]
+        chars = [" "] * self.content_width
+        pattern = ["PM----", "PM    PM"]
+        for idx, start in enumerate(measure_positions[:-1]):
+            col = scale_to_columns(start, measure_positions[0], measure_positions[-1], self.content_width)
+            block = pattern[idx % len(pattern)]
             for offset, char in enumerate(block):
-                idx = min(self.width_chars - 1, col_start + offset)
-                chars[idx] = char
-            segment += 1
+                target = min(self.content_width - 1, col + offset)
+                chars[target] = char
         return "   " + "".join(chars)
 
     def _build_measure_numbers(self, measure_positions: List[int]) -> str:
-        chars = [" "] * self.width_chars
+        chars = [" "] * self.content_width
         for i, x in enumerate(measure_positions[:-1]):
-            col = scale_to_columns(x, measure_positions[0], measure_positions[-1], self.width_chars)
+            col = scale_to_columns(x, measure_positions[0], measure_positions[-1], self.content_width)
             chars[col] = "|"
             num = str(i + 1)
             for offset, char in enumerate(num, start=2):
-                idx = min(self.width_chars - 1, col + offset)
-                chars[idx] = char
+                target = min(self.content_width - 1, col + offset)
+                chars[target] = char
         chars[-1] = "|"
         return " " + "".join(chars)
 
     def _build_string_lines(
         self,
         notes: list[Note],
-        string_positions: List[int],
         measure_positions: List[int],
     ) -> list[str]:
-        lines = {idx: ["-"] * self.width_chars for idx in range(6)}
+        lines = {idx: ["-"] * self.content_width for idx in range(6)}
         for col in measure_positions:
-            col_idx = scale_to_columns(col, measure_positions[0], measure_positions[-1], self.width_chars)
+            col_idx = scale_to_columns(col, measure_positions[0], measure_positions[-1], self.content_width)
             for arr in lines.values():
                 arr[col_idx] = "|"
         for note in notes:
-            col = scale_to_columns(note.column, measure_positions[0], measure_positions[-1], self.width_chars)
+            col = scale_to_columns(note.column, measure_positions[0], measure_positions[-1], self.content_width)
             arr = lines[note.string_index]
             for offset, char in enumerate(note.value):
-                idx = min(self.width_chars - 1, col + offset)
-                arr[idx] = char
+                target = min(self.content_width - 1, col + offset)
+                arr[target] = char
         ordered = []
         for idx, name in enumerate(STRING_NAMES):
             ordered.append(f"{name}|" + "".join(lines[idx]))
         return ordered
 
     def _build_timing_line(self, measure_positions: List[int]) -> str:
-        chars = [" "] * self.width_chars
+        chars = [" "] * self.content_width
         steps_per_measure = 8
         for start, end in zip(measure_positions[:-1], measure_positions[1:]):
             for step in range(steps_per_measure):
                 pos = start + (end - start) * (step + 0.5) / steps_per_measure
-                col = scale_to_columns(pos, measure_positions[0], measure_positions[-1], self.width_chars)
+                col = scale_to_columns(pos, measure_positions[0], measure_positions[-1], self.content_width)
                 chars[col] = "|"
         return "    " + "".join(chars)
 

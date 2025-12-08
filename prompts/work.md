@@ -22,7 +22,7 @@ Si quieres sirvete del preprocesamiento que ya hay si te sirve de algo, y si no,
 
 Habiendo identificado correctamente cada figura el siguiente paso será usar el txt (examples/validation.txt) donde te explicré a continuación el resultado el equivalente en texto al que quiero que conviertas dicha imagen. 
 
-Procedo a epxlicarte como quiero que generes el txt.
+Procedo a explicarte como quiero que generes el txt.
 
 Como se puede ver
 

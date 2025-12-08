@@ -84,12 +84,10 @@ def detect_string_positions(gray: np.ndarray, tab_box: BoundingBox) -> list[int]
     indices = [i for i, value in enumerate(row_sums) if value > threshold]
     clusters = _cluster_indices(indices, min_gap=3)
     clusters = sorted(clusters)
-    # ensure 6 strings by subsampling or interpolation if necessary
     if len(clusters) > 6:
         step = len(clusters) / 6.0
         clusters = [clusters[int(round(i * step))] for i in range(6)]
     elif len(clusters) < 6:
-        # approximate by linear spacing within detected range
         if clusters:
             start, end = clusters[0], clusters[-1]
             clusters = [int(start + (end - start) * i / 5.0) for i in range(6)]
@@ -107,7 +105,6 @@ def detect_measure_positions(gray: np.ndarray, tab_box: BoundingBox) -> list[int
     indices = [i for i, value in enumerate(col_sums) if value > threshold]
     clusters = _cluster_indices(indices, min_gap=5)
     x_positions = [tab_box.x + x for x in clusters]
-    # include start and end of tab
     x_positions = [tab_box.x] + x_positions + [tab_box.x2]
     x_positions = sorted(set(x_positions))
     return x_positions
@@ -115,18 +112,18 @@ def detect_measure_positions(gray: np.ndarray, tab_box: BoundingBox) -> list[int
 
 def detect_note_candidates(gray: np.ndarray, tab_box: BoundingBox) -> list[NoteCandidate]:
     roi = gray[tab_box.y:tab_box.y2, tab_box.x:tab_box.x2]
-    inv = cv2.bitwise_not(roi)
-    blur = cv2.GaussianBlur(inv, (3, 3), 0)
-    _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    blur = cv2.GaussianBlur(roi, (3, 3), 0)
+    thresh = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 31, 10)
+    horizontal = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (35, 1)))
+    vertical = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (1, 25)))
+    mask = cv2.subtract(thresh, cv2.bitwise_or(horizontal, vertical))
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    opened = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
-    contours, _ = cv2.findContours(opened, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     candidates: list[NoteCandidate] = []
     for contour in contours:
         x, y, w, h = cv2.boundingRect(contour)
-        if w < 6 or h < 10 or h > roi.shape[0] * 0.5:
-            continue
-        if w > roi.shape[1] * 0.1:
+        if not (6 <= w <= 30 and 10 <= h <= 40):
             continue
         box = BoundingBox(tab_box.x + x, tab_box.y + y, w, h)
         crop = roi[y:y + h, x:x + w]
