@@ -55,7 +55,7 @@ Por otro lado tenemos la tablatura:
 --7------------------------|--7------------------------|--7------------------------|--7------------------------|--------------------------------|
 ---------------------------|---------------------------|---------------------------|---------------------------|--------------------------------|
 
-Y aquí viene lo más importante de la tablatua, a esto dedicale especial atención a la hora de generar el txt, ya que aquí será donde un buen alineamiento hará que se muestre correctamente el txt.
+Y aquí viene lo más importante de la tablatura, a esto dedicale especial atención a la hora de generar el txt, ya que aquí será donde un buen alineamiento hará que se muestre correctamente el txt.
 
 Donde siempre se dejan dos guiones (-) entre notas que formen parte de la misma agrupación, en este caso por cada compás tenemos 8 corcheas agrupadas en 2 grupos de 4 por 4.
 Entre corcheas meteremos dos guiones al final del compas y dos guiones al principio del siguiente compas. Intercalando las barras (|) ya mencionadas entre compás y compás.
