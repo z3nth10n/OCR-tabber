@@ -198,13 +198,11 @@ def get_instrument_name_from_json(data: Dict[str, Any]) -> str:
     devuelve un nombre por defecto.
     """
     inst = data.get("instrument")
-    if isinstance(inst, str):
-        return inst
-        # name = inst.get("name")
-        # if isinstance(name, str):
-        #     return name
+    name = data.get("name")
+    if isinstance(inst, str) and isinstance(name, str):
+        return (inst, name)
         
-    return "undefined"
+    return ("undefined", "undefined")
 
 # --- Render a texto tipo tablatura ------------------------------------------
 
@@ -212,6 +210,7 @@ def render_tab(
     data: Dict[str, Any],
     song: str = "OCR Validation",
     artist: str = "Visual Tab",
+    instrument: Optional[str] = None,
     instrument_name: Optional[str] = None,
     include_meta: bool = True,
 ) -> str:
@@ -461,7 +460,7 @@ def fetch_songsterr_guitar_jsons(url: str) -> List[Tuple[str, str, Dict[str, Any
         base_url = req_url.split("?", 1)[0]
         json_urls.add(base_url)
 
-    results: List[Tuple[str, Dict[str, Any]]] = []
+    results: List[Tuple[str, str, Dict[str, Any]]] = []
     for ju in sorted(json_urls):
         try:
             r = requests.get(ju)
@@ -517,10 +516,11 @@ if __name__ == "__main__":
             sys.exit(1)
 
         # Una tablatura por guitarra
-        for i, (inst_name, data) in enumerate(guitars):
+        for i, (instrument, name, data) in enumerate(guitars):
             block_txt = render_tab(
                 data,
-                instrument_name=inst_name,
+                instrument,
+                instrument_name=name,
                 include_meta=(i == 0),  # sólo la primera lleva Song/Artist/BPM/Time
             )
             blocks.append(block_txt)
@@ -528,11 +528,12 @@ if __name__ == "__main__":
     elif args.json_file:
         with open(args.json_file, "r", encoding="utf-8") as f:
             data = json.load(f)
-        inst_name = get_instrument_name_from_json(data)
+        (instrument, name) = get_instrument_name_from_json(data)
         blocks.append(
             render_tab(
                 data,
-                instrument_name=inst_name,
+                instrument,
+                instrument_name=name,
                 include_meta=True,
             )
         )
