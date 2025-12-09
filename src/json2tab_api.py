@@ -1,8 +1,11 @@
 # json2tab_api.py
 
 from typing import Optional
+import os
+from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import json2tab  # your main script
@@ -13,13 +16,83 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# --- Domain restriction (optional, via ALLOWED_DOMAINS env var) ---
+
+# ALLOWED_DOMAINS puede ser, por ejemplo:
+#   ALLOWED_DOMAINS="https://z3nth10n.github.io,https://otro-dominio.com"
+_ALLOWED_DOMAINS_ENV = os.getenv("ALLOWED_DOMAINS")
+
+if _ALLOWED_DOMAINS_ENV:
+    ALLOWED_DOMAINS = {
+        d.strip().rstrip("/")
+        for d in _ALLOWED_DOMAINS_ENV.split(",")
+        if d.strip()
+    }
+else:
+    ALLOWED_DOMAINS = None  # Sin restricciones
+
+
+# CORS: si hay dominios permitidos, sólo esos; si no, todo (*)
+if ALLOWED_DOMAINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(ALLOWED_DOMAINS),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+def _extract_origin_domain(request: Request) -> Optional[str]:
+    """
+    Devuelve 'scheme://host' a partir de Origin o Referer, o None si no hay.
+    """
+    origin = request.headers.get("origin") or request.headers.get("referer")
+    if not origin:
+        return None
+    parsed = urlparse(origin)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+async def verify_origin(request: Request):
+    """
+    Si ALLOWED_DOMAINS está definido, sólo acepta peticiones cuyo Origin/Referer
+    pertenezca a esa lista. Si no, devuelve 403.
+    Si ALLOWED_DOMAINS no está definido, no hace nada.
+    """
+    if not ALLOWED_DOMAINS:
+        # No hay restricción configurada, aceptamos cualquier origen.
+        return
+
+    domain = _extract_origin_domain(request)
+    if not domain:
+        # No viene Origin ni Referer -> la tiramos igual
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: missing or invalid Origin/Referer",
+        )
+
+    if domain.rstrip("/") not in ALLOWED_DOMAINS:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Forbidden origin: {domain}",
+        )
 
 class TabResponse(BaseModel):
     url: str
     tab: str
 
-
-@app.get("/tab", response_model=TabResponse)
+@app.get("/tab", response_model=TabResponse, dependencies=[Depends(verify_origin)])
 def get_tab(
     url: str = Query(..., description="Songsterr URL"),
     wrap: bool = Query(False, description="Apply wrap by measures"),
