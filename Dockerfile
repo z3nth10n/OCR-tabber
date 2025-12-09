@@ -10,7 +10,7 @@ ENV CHROME_BIN=/usr/bin/chromium
 ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
 
 WORKDIR /app
-COPY . .
+COPY /src .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Puerto que usará uvicorn dentro del contenedor
