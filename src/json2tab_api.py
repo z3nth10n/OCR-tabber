@@ -37,10 +37,7 @@ else:
 if ALLOWED_DOMAINS:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=list(ALLOWED_DOMAINS) + [
-            "http://localhost",
-            "http://127.0.0.1",
-        ],
+        allow_origins=list(ALLOWED_DOMAINS),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
