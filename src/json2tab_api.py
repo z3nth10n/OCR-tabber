@@ -8,7 +8,8 @@ from fastapi import FastAPI, HTTPException, Query, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-import json2tab  # your main script
+import json2tab
+import requests
 
 app = FastAPI(
     title="json2tab API",
@@ -125,3 +126,35 @@ def get_tab(
         )
 
     return TabResponse(url=url, tab=tab_text)
+
+@app.get(
+    "/songsterr-search",
+    dependencies=[Depends(verify_origin)]
+)
+def songsterr_search(
+    pattern: str = Query(..., description="Songsterr search pattern"),
+    size: int = Query(10, description="Max results"),
+):
+    """
+    Proxy de búsqueda hacia la API pública de Songsterr.
+    Evita problemas de CORS llamándola desde el servidor.
+    """
+    api_url = f"https://www.songsterr.com/api/songs?size={size}&pattern={pattern}"
+    try:
+        resp = requests.get(api_url, timeout=10)
+        resp.raise_for_status()
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Error calling Songsterr API: {e}",
+        )
+
+    try:
+        data = resp.json()
+    except ValueError:
+        raise HTTPException(
+            status_code=502,
+            detail="Invalid JSON from Songsterr",
+        )
+
+    return data
