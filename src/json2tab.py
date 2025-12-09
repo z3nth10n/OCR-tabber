@@ -114,8 +114,9 @@ def extract_beats(measure: Dict[str, Any]) -> List[Dict[str, Any]]:
     Cada beat trae:
       - steps (duración en steps de semicorchea)
       - notes_by_string: {num_cuerda -> traste}
+      - is_rest: bool (true si el beat es silencio)
       - palmMute: bool
-      - duration, dotted, type (por si quieres usarlos luego)
+      - duration, dotted, type
     """
     voice = measure["voices"][0]
     beats_out = []
@@ -124,19 +125,30 @@ def extract_beats(measure: Dict[str, Any]) -> List[Dict[str, Any]]:
         steps = duration_to_steps(beat)
 
         notes_by_string: Dict[int, int] = {}
+        has_real_note = False
+
         for note in beat.get("notes", []):
+            # Si la nota es un silencio, no añadimos traste,
+            # pero la tenemos en cuenta para marcar el beat como "de silencio".
             if note.get("rest"):
                 continue
+
             s = note.get("string")
             # El JSON a veces trae string=0 para cosas raras -> los ignoramos
             if not isinstance(s, int) or s <= 0:
                 continue
+
+            has_real_note = True
             notes_by_string[s] = note.get("fret", 0)
+
+        # Beat es silencio si el tipo es rest o no había notas reales
+        is_rest = (beat.get("type") == "rest") or (not has_real_note)
 
         beats_out.append(
             {
                 "steps": steps,
                 "notes_by_string": notes_by_string,
+                "is_rest": is_rest,
                 "palmMute": beat.get("palmMute", False),
                 "duration": beat.get("duration", [1, 4]),
                 "dotted": beat.get("dotted", False),
@@ -279,23 +291,31 @@ def build_tab_segments(data: Dict[str, Any]):
             sym = duration_symbol(beat)
             if len(sym) > w:
                 sym = sym[:w]
-            left = (w - len(sym)) // 2
-            right = w - len(sym) - left
-            t_seg_parts.append(" " * left + sym + " " * right)
+            # Alineado al inicio del slot del beat
+            padding = w - len(sym)
+            t_seg_parts.append(sym + " " * padding)
         segments_time.append("|" + "".join(t_seg_parts))
 
         # --- Cuerdas ---
+        REST_SYM = "z"  # símbolo para silencios en la tablatura
+
         for s in range(1, strings_count + 1):
             seg_parts = []
             for beat, w in zip(beats, beat_widths):
-                fret = beat["notes_by_string"].get(s)
-                if fret is None:
-                    seg_parts.append("-" * w)
+                if beat.get("is_rest"):
+                    # Silencio: mostramos REST_SYM alineado al inicio del beat
+                    # y rellenamos con guiones para mantener el ancho.
+                    seg_parts.append(REST_SYM + "-" * (w - 1))
                 else:
-                    fret_txt = str(fret)
-                    if len(fret_txt) > w:
-                        fret_txt = fret_txt[:w]
-                    seg_parts.append(fret_txt + "-" * (w - len(fret_txt)))
+                    fret = beat["notes_by_string"].get(s)
+                    if fret is None:
+                        # No hay nota en esta cuerda, pero el beat no es silencio global
+                        seg_parts.append("-" * w)
+                    else:
+                        fret_txt = str(fret)
+                        if len(fret_txt) > w:
+                            fret_txt = fret_txt[:w]
+                        seg_parts.append(fret_txt + "-" * (w - len(fret_txt)))
             segments_strings[s].append("|" + "".join(seg_parts))
 
     return {
