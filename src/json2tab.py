@@ -51,10 +51,21 @@ def duration_to_steps(beat: Dict[str, Any]) -> int:
 
 def duration_symbol(beat: Dict[str, Any]) -> str:
     """
-    Devuelve un símbolo (normalmente 1 carácter) para la duración,
-    relativo a la negra (1 = negra, 1/2 = corchea, 1/4 = semicorchea...).
+    Devuelve SIEMPRE un solo carácter ASCII para representar la duración,
+    en unidades de negra (1 = negra, 1/2 = corchea, 1/4 = semicorchea, etc.).
 
-    Ojo: usamos caracteres Unicode como '½', '¼', '¾', '⅛', '⅜', etc.
+    Mapeo propuesto (puedes cambiar los símbolos a tu gusto):
+        n : negra (1)
+        c : corchea (1/2)
+        s : semicorchea (1/4)
+        f : fusa (1/8)
+        g : semifusa (1/16)
+        b : blanca (2)
+        r : redonda (4)
+
+        N : negra con puntillo   (3/2)
+        C : corchea con puntillo (3/4)   <-- aquí entra el 3/4
+        S : semicorch. puntillo  (3/8)   <-- aquí entra el "3/16 de redonda" / 3/8 de negra
     """
     num, den = beat.get("duration", [1, 4])
     frac = Fraction(num, den)
@@ -65,19 +76,21 @@ def duration_symbol(beat: Dict[str, Any]) -> str:
     rel = frac / Fraction(1, 4)
 
     mapping = {
-        Fraction(1, 1): "1",   # negra
-        Fraction(1, 2): "½",   # corchea
-        Fraction(1, 4): "¼",   # semicorchea
-        Fraction(1, 8): "⅛",   # fusa
-        Fraction(1, 16): "↯",  # semifusa (aquí ya no hay fracción estándar, inventamos algo si quieres)
-        Fraction(2, 1): "2",   # blanca
-        Fraction(4, 1): "4",   # redonda
-        Fraction(3, 4): "¾",   # corchea con puntillo (3/4 de negra)
-        Fraction(3, 2): "1½",  # negra con puntillo (esto son 2 caracteres, no hay char único)
-        Fraction(3, 8): "⅜",   # tresillo / compuestos raros
+        Fraction(1, 1): "n",   # negra
+        Fraction(1, 2): "c",   # corchea
+        Fraction(1, 4): "s",   # semicorchea
+        Fraction(1, 8): "f",   # fusa
+        Fraction(1, 16): "g",  # semifusa
+        Fraction(2, 1): "b",   # blanca
+        Fraction(4, 1): "r",   # redonda
+
+        Fraction(3, 2): "N",   # negra con puntillo (3/2)
+        Fraction(3, 4): "C",   # corchea con puntillo (3/4)
+        Fraction(3, 8): "S",   # semicorchea con puntillo (3/8)
     }
 
-    return mapping.get(rel, f"{num}/{den}" + ("." if beat.get("dotted") else ""))
+    # Si aparece algo raro (tresillos, etc.), usa un marcador genérico
+    return mapping.get(rel, "?")
 
 
 # --- Parseo básico del JSON de Songsterr ------------------------------------
