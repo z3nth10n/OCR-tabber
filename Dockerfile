@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-# Instalamos Chromium y chromedriver
+# Install Chromium and chromedriver
 RUN apt-get update && apt-get install -y \
     chromium \
     chromium-driver \
@@ -13,7 +13,7 @@ WORKDIR /app
 COPY /src .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Puerto que usará uvicorn dentro del contenedor
+# Port used by uvicorn inside the container
 ENV PORT=10000
 
 CMD ["uvicorn", "json2tab_api:app", "--host", "0.0.0.0", "--port", "10000"]

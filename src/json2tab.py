@@ -16,21 +16,21 @@ import sqlite3
 
 import os
 
-# Fuerza stdout a UTF-8 para que las fracciones (½, ¼, ¾…) no se rompan
+# Force stdout to UTF-8 so fractions (½, ¼, ¾…) don't break
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 else:
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
-# Ruta por defecto de la base de datos de caché
+# Default cache database path
 CACHE_DB_PATH = "json2tab_cache.db"
 
 
 def init_cache(db_path: str = CACHE_DB_PATH) -> None:
     """
-    Crea la base de datos y la tabla de caché si no existen.
-    Tabla: cache(id, url, tab)
+    Creates the database and cache table if they don't exist.
+    Table: cache(id, url, tab)
     """
     conn = sqlite3.connect(db_path)
     conn.execute(
@@ -48,8 +48,8 @@ def init_cache(db_path: str = CACHE_DB_PATH) -> None:
 
 def cache_get(url: str, db_path: str = CACHE_DB_PATH) -> Optional[str]:
     """
-    Devuelve el contenido de 'tab' para una url si está en caché,
-    o None si no hay registro.
+    Returns the 'tab' content for a url if it is in cache,
+    or None if there is no record.
     """
     init_cache(db_path)
     conn = sqlite3.connect(db_path)
@@ -62,7 +62,7 @@ def cache_get(url: str, db_path: str = CACHE_DB_PATH) -> Optional[str]:
 
 def cache_set(url: str, tab: str, db_path: str = CACHE_DB_PATH) -> None:
     """
-    Inserta o actualiza la caché para una url concreta.
+    Inserts or updates the cache for a specific url.
     """
     init_cache(db_path)
     conn = sqlite3.connect(db_path)
@@ -74,33 +74,33 @@ def cache_set(url: str, tab: str, db_path: str = CACHE_DB_PATH) -> None:
     conn.commit()
     conn.close()
 
-# --- Ajustes de layout globales ---------------------------------------------
+# --- Global layout settings ---------------------------------------------
 
-# Pasos de tiempo en una redonda (4/4 -> 16 semicorcheas por compás)
+# Time steps in a whole note (4/4 -> 16 sixteenth notes per measure)
 BASE_STEPS_PER_WHOLE = 16
-# Ancho horizontal (en caracteres) de cada paso mínimo (semicorchea)
+# Horizontal width (in characters) of each minimum step (sixteenth note)
 CHARS_PER_STEP = 2
 
 
-# --- Utilidades de tiempo / duración ----------------------------------------
+# --- Time / duration utilities ----------------------------------------
 
 def duration_to_steps(beat: Dict[str, Any]) -> int:
     """
-    Convierte la duración del beat (num/den, punteado o no) a un
-    número entero de "steps" dentro de una redonda.
+    Converts the beat duration (num/den, dotted or not) to an
+    integer number of "steps" within a whole note.
 
-    Ejemplo:
-      1/4 -> 4 steps (si BASE_STEPS_PER_WHOLE = 16)
+    Example:
+      1/4 -> 4 steps (if BASE_STEPS_PER_WHOLE = 16)
       1/8 -> 2 steps
       1/16 -> 1 step
-      3/16 (corchea con puntillo) -> 3 steps
+      3/16 (dotted eighth note) -> 3 steps
     """
     num, den = beat.get("duration", [1, 4])
     frac = Fraction(num, den)
     if beat.get("dotted"):
         frac *= Fraction(3, 2)
     steps = frac * BASE_STEPS_PER_WHOLE
-    # Si salen cosas raras (tresillos, etc.), redondeamos hacia abajo
+    # If weird things come out (triplets, etc.), round down
     return int(steps)
 
 
@@ -108,23 +108,23 @@ from fractions import Fraction
 
 def duration_symbol(beat):
     """
-    Devuelve SIEMPRE un solo carácter ASCII para representar la duración
-    en unidades de negra (1 = 1 tiempo, 2 = 2 tiempos, etc).
+    ALWAYS returns a single ASCII character to represent the duration
+    in quarter note units (1 = 1 beat, 2 = 2 beats, etc).
 
-    Mapeo propuesto:
-        n : negra        (1)
-        c : corchea      (1/2)
-        s : semicorchea  (1/4)
-        f : fusa         (1/8)
-        g : semifusa     (1/16)
+    Proposed mapping:
+        n : quarter      (1)
+        c : eighth       (1/2)
+        s : sixteenth    (1/4)
+        f : thirty-second(1/8)
+        g : sixty-fourth (1/16)
 
-        b : blanca       (2 tiempos)
-        h : blanca+punt. (3 tiempos)  <-- sombrero con puntillo
-        r : redonda      (4 tiempos)
+        b : half         (2 beats)
+        h : dotted half  (3 beats)  <-- dotted hat
+        r : whole        (4 beats)
 
-        N : negra+punt.  (3/2 tiempos)
-        C : corchea+punt.(3/4 tiempos)
-        S : semicorch.+p.(3/8 tiempos)
+        N : dotted qtr.  (3/2 beats)
+        C : dotted 8th   (3/4 beats)
+        S : dotted 16th  (3/8 beats)
     """
 
     num, den = beat.get("duration", [1, 4])
@@ -132,44 +132,44 @@ def duration_symbol(beat):
     if beat.get("dotted"):
         frac *= Fraction(3, 2)
 
-    # rel = duración en negras (tiempos)
+    # rel = duration in quarter notes (beats)
     rel = frac / Fraction(1, 4)
 
     mapping = {
-        Fraction(1, 1): "n",   # negra       (1)
-        Fraction(1, 2): "c",   # corchea     (1/2)
-        Fraction(1, 4): "s",   # semicorch.  (1/4)
-        Fraction(1, 8): "f",   # fusa        (1/8)
-        Fraction(1, 16): "g",  # semifusa    (1/16)
+        Fraction(1, 1): "n",   # quarter       (1)
+        Fraction(1, 2): "c",   # eighth     (1/2)
+        Fraction(1, 4): "s",   # sixteenth  (1/4)
+        Fraction(1, 8): "f",   # thirty-second (1/8)
+        Fraction(1, 16): "g",  # sixty-fourth (1/16)
 
-        Fraction(2, 1): "b",   # blanca      (2 tiempos)
-        Fraction(3, 1): "h",   # blanca+punt.(3 tiempos, tu sombrero con puntillo)
-        Fraction(4, 1): "r",   # redonda     (4 tiempos)
+        Fraction(2, 1): "b",   # half      (2 beats)
+        Fraction(3, 1): "h",   # dotted half (3 beats, your dotted hat)
+        Fraction(4, 1): "r",   # whole     (4 beats)
 
-        Fraction(3, 2): "N",   # negra+punt. (1.5)
-        Fraction(3, 4): "C",   # corchea+pun.(0.75)
-        Fraction(3, 8): "S",   # semicorch.+.(0.375)
+        Fraction(3, 2): "N",   # dotted quarter (1.5)
+        Fraction(3, 4): "C",   # dotted eighth (0.75)
+        Fraction(3, 8): "S",   # dotted sixteenth (0.375)
 
-        Fraction(9, 8): "T",   # 1.125 tiempos (p.ej. tresillo / figura compuesta)
-        Fraction(9, 2): "U",   # 4.5 tiempos (nota ligada que pasa de compás)
-        Fraction(1, 6): "x",   # 0.1666... tiempos (sextillo / figura muy corta)
+        Fraction(9, 8): "T",   # 1.125 beats (e.g. triplet / compound figure)
+        Fraction(9, 2): "U",   # 4.5 beats (tied note passing measure)
+        Fraction(1, 6): "x",   # 0.1666... beats (sextuplet / very short figure)
     }
 
     if rel not in mapping:
-        print("Duración no mapeada:", rel, "dur=", beat.get("duration"), "dotted=", beat.get("dotted"))
+        print("Unmapped duration:", rel, "dur=", beat.get("duration"), "dotted=", beat.get("dotted"))
 
     return mapping.get(rel, "?")
 
 
-# --- Parseo básico del JSON de Songsterr ------------------------------------
+# --- Basic Songsterr JSON parsing ------------------------------------
 
 def extract_beats(measure: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
-    Saca una lista plana de beats de la PRIMERA voz del compás.
-    Cada beat trae:
-      - steps (duración en steps de semicorchea)
-      - notes_by_string: {num_cuerda -> traste}
-      - is_rest: bool (true si el beat es silencio)
+    Extracts a flat list of beats from the FIRST voice of the measure.
+    Each beat brings:
+      - steps (duration in sixteenth note steps)
+      - notes_by_string: {string_num -> fret}
+      - is_rest: bool (true if the beat is a rest)
       - palmMute: bool
       - duration, dotted, type
     """
@@ -183,20 +183,20 @@ def extract_beats(measure: Dict[str, Any]) -> List[Dict[str, Any]]:
         has_real_note = False
 
         for note in beat.get("notes", []):
-            # Si la nota es un silencio, no añadimos traste,
-            # pero la tenemos en cuenta para marcar el beat como "de silencio".
+            # If the note is a rest, we don't add a fret,
+            # but we take it into account to mark the beat as "rest".
             if note.get("rest"):
                 continue
 
             s = note.get("string")
-            # El JSON a veces trae string=0 para cosas raras -> los ignoramos
+            # JSON sometimes brings string=0 for weird things -> we ignore them
             if not isinstance(s, int) or s <= 0:
                 continue
 
             has_real_note = True
             notes_by_string[s] = note.get("fret", 0)
 
-        # Beat es silencio si el tipo es rest o no había notas reales
+        # Beat is rest if type is rest or there were no real notes
         is_rest = (beat.get("type") == "rest") or (not has_real_note)
 
         beats_out.append(
@@ -216,11 +216,11 @@ def extract_beats(measure: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 def compute_measure_layout(measures_json: List[Dict[str, Any]]):
     """
-    Para cada compás:
-      - Extrae sus beats
-      - Calcula el ancho (en caracteres) de cada beat,
-        en función de su duración y del máximo número de dígitos
-        de los trastes que se tocan en ese beat.
+    For each measure:
+      - Extracts its beats
+      - Calculates the width (in characters) of each beat,
+        based on its duration and the maximum number of digits
+        of the frets played in that beat.
     """
     measures_beats: List[List[Dict[str, Any]]] = []
     measures_widths: List[List[int]] = []
@@ -231,14 +231,14 @@ def compute_measure_layout(measures_json: List[Dict[str, Any]]):
 
         for beat in beats:
             steps = beat["steps"]
-            # Máximo nº de dígitos de traste en este beat (1 o 2 normalmente)
+            # Max number of fret digits in this beat (usually 1 or 2)
             max_digits = max(
                 (len(str(f)) for f in beat["notes_by_string"].values()),
                 default=1
             )
 
             base_width = CHARS_PER_STEP * max(1, steps)
-            # Dejamos al menos un guion después del número
+            # Leave at least one dash after the number
             width = max(base_width, max_digits + 1)
             widths.append(width)
 
@@ -268,8 +268,8 @@ def find_bpm(data: Dict[str, Any]) -> int:
 
 def tuning_names_from_midi(tuning: List[int]) -> List[str]:
     """
-    Songsterr usa MIDI para la afinación.
-    En tu caso concreto es [64,59,55,50,45,40] -> eB G D A E (E estándar).
+    Songsterr uses MIDI for tuning.
+    In your specific case it is [64,59,55,50,45,40] -> eB G D A E (E standard).
     """
     if tuning == [64, 59, 55, 50, 45, 40]:
         return ["e", "B", "G", "D", "A", "E"]
@@ -287,8 +287,8 @@ def tuning_names_from_midi(tuning: List[int]) -> List[str]:
 
 def get_instrument_name_from_json(data: Dict[str, Any]) -> str:
     """
-    Intenta leer data["instrument"]["name"]. Si no existe,
-    devuelve un nombre por defecto.
+    Tries to read data["instrument"]["name"]. If it doesn't exist,
+    returns a default name.
     """
     inst = data.get("instrument")
     name = data.get("name")
@@ -299,9 +299,9 @@ def get_instrument_name_from_json(data: Dict[str, Any]) -> str:
 
 def build_tab_segments(data: Dict[str, Any]):
     """
-    Devuelve toda la info necesaria para renderizar la tablatura
-    troceada por compases, sin aún unirlo en líneas completas.
-    Cada segmento es algo como "|-----8----9-----" para un compás.
+    Returns all info needed to render the tablature
+    chopped by measures, without yet joining it into full lines.
+    Each segment is something like "|-----8----9-----" for a measure.
     """
     measures_json = data["measures"]
     measures_beats, measures_widths = compute_measure_layout(measures_json)
@@ -320,7 +320,7 @@ def build_tab_segments(data: Dict[str, Any]):
         measure_width = sum(beat_widths)
         measure_widths.append(measure_width)
 
-        # --- Número de compás ---
+        # --- Measure number ---
         label = f" {idx}"
         if len(label) > measure_width:
             label = label[:measure_width]
@@ -340,31 +340,31 @@ def build_tab_segments(data: Dict[str, Any]):
             pm_seg_parts.append(text)
         segments_pm.append("|" + "".join(pm_seg_parts))
 
-        # --- Tiempos ---
+        # --- Times ---
         t_seg_parts = []
         for beat, w in zip(beats, beat_widths):
             sym = duration_symbol(beat)
             if len(sym) > w:
                 sym = sym[:w]
-            # Alineado al inicio del slot del beat
+            # Aligned to the start of the beat slot
             padding = w - len(sym)
             t_seg_parts.append(sym + " " * padding)
         segments_time.append("|" + "".join(t_seg_parts))
 
-        # --- Cuerdas ---
-        REST_SYM = "z"  # símbolo para silencios en la tablatura
+        # --- Strings ---
+        REST_SYM = "z"  # symbol for rests in tablature
 
         for s in range(1, strings_count + 1):
             seg_parts = []
             for beat, w in zip(beats, beat_widths):
                 if beat.get("is_rest"):
-                    # Silencio: mostramos REST_SYM alineado al inicio del beat
-                    # y rellenamos con guiones para mantener el ancho.
+                    # Rest: show REST_SYM aligned to the start of the beat
+                    # and fill with dashes to maintain width.
                     seg_parts.append(REST_SYM + "-" * (w - 1))
                 else:
                     fret = beat["notes_by_string"].get(s)
                     if fret is None:
-                        # No hay nota en esta cuerda, pero el beat no es silencio global
+                        # No note on this string, but the beat is not a global rest
                         seg_parts.append("-" * w)
                     else:
                         fret_txt = str(fret)
@@ -384,7 +384,7 @@ def build_tab_segments(data: Dict[str, Any]):
     }
 
 
-# --- Render a texto tipo tablatura ------------------------------------------
+# --- Render to tablature text ------------------------------------------
 
 def render_tab(
     data: Dict[str, Any],
@@ -393,7 +393,7 @@ def render_tab(
     instrument: Optional[str] = None,
     instrument_name: Optional[str] = None,
     include_meta: bool = True,
-    max_width: Optional[int] = None,  # <<--- ancho máximo (para --wrap)
+    max_width: Optional[int] = None,  # <<--- max width (for --wrap)
 ) -> str:
     seg = build_tab_segments(data)
 
@@ -404,17 +404,17 @@ def render_tab(
     sig_num, sig_den = find_time_signature(data)
     bpm = find_bpm(data)
 
-    # --- Calcular los rangos de compases por bloque ---
-    # Si no hay max_width, todo en un solo bloque
+    # --- Calculate measure ranges per block ---
+    # If no max_width, everything in a single block
     if max_width is None:
         ranges = [(0, measure_count)]
     else:
         ranges: List[Tuple[int, int]] = []
         i = 0
-        # Dejamos un margen para el prefijo (espacio inicial, "e", "B", etc.)
+        # Leave a margin for the prefix (initial space, "e", "B", etc.)
         content_limit = max_width - 3
         if content_limit < 10:
-            content_limit = 10  # mínimo razonable
+            content_limit = 10  # reasonable minimum
 
         pm_segments = seg["pm"]
 
@@ -423,22 +423,22 @@ def render_tab(
             j = i
             while j < measure_count:
                 seg_len = len(pm_segments[j])
-                # +2 por el espacio inicial y la barra final "|"
+                # +2 for the initial space and the final bar "|"
                 if total + seg_len + 2 > content_limit and j > i:
                     break
                 total += seg_len
                 j += 1
-                # si ni siquiera cabe un compás, lo forzamos
+                # if not even one measure fits, force it
                 if total + 2 > content_limit and j == i + 1:
                     break
 
             ranges.append((i, j))
             i = j
 
-    # --- Construir las líneas finales, respetando bloques por compases ---
+    # --- Build final lines, respecting measure blocks ---
     out_lines: List[str] = []
 
-    # Metadatos generales (solo una vez por instrument_name)
+    # General metadata (only once per instrument_name)
     if include_meta:
         out_lines.append(f"Song: {song}")
         out_lines.append(f"Artist: {artist}")
@@ -452,7 +452,7 @@ def render_tab(
 
     for block_index, (start, end) in enumerate(ranges):
         if block_index > 0:
-            # línea en blanco entre trozos envueltos
+            # blank line between wrapped chunks
             out_lines.append("")
 
         pm_line = " " + "".join(seg["pm"][start:end]) + "|"
@@ -475,17 +475,17 @@ def render_tab(
 
 def fetch_songsterr_guitar_jsons(url: str) -> List[Tuple[str, str, Dict[str, Any]]]:
     """
-    Abre la URL de Songsterr con Selenium, captura las peticiones de red,
-    filtra las que van a *.cloudfront.net y acaban en N.json (0.json, 1.json...)
-    y se queda con aquellas cuyo JSON tenga instrument.name que contenga 'Guitar'.
+    Opens the Songsterr URL with Selenium, captures network requests,
+    filters those going to *.cloudfront.net ending in N.json (0.json, 1.json...)
+    and keeps those whose JSON has instrument.name containing 'Guitar'.
     
-    Devuelve una lista de (instrument_name, data_json).
+    Returns a list of (instrument_name, data_json).
     """
     chrome_options = Options()
     chrome_options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
     
     chrome_options.add_argument("--headless")
-    # chrome_options.add_argument("--headless=new")  # quita esto si quieres ver el navegador
+    # chrome_options.add_argument("--headless=new")  # remove this if you want to see the browser
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
@@ -497,7 +497,7 @@ def fetch_songsterr_guitar_jsons(url: str) -> List[Tuple[str, str, Dict[str, Any
     driver = webdriver.Chrome(service=service, options=chrome_options)
     try:
         driver.get(url)
-        # pequeño margen para que carguen las peticiones
+        # small margin for requests to load
         time.sleep(5)
         logs = driver.get_log("performance")
     finally:
@@ -547,13 +547,13 @@ def generate_tab_from_url(
     db_path: str = CACHE_DB_PATH,
 ) -> str:
     """
-    Dada una URL de Songsterr:
-      - Si use_cache=True, primero mira en la base de datos.
-      - Si no está en caché:
-          * Descarga los JSON de guitarra
-          * Genera la(s) tablatura(s)
-          * Guarda el resultado completo en caché
-      - Devuelve el texto final de la tablatura (posibles varias guitarras separadas por ---).
+    Given a Songsterr URL:
+      - If use_cache=True, first checks the database.
+      - If not in cache:
+          * Downloads guitar JSONs
+          * Generates the tablature(s)
+          * Saves the full result in cache
+      - Returns the final tablature text (possibly multiple guitars separated by ---).
     """
     if use_cache:
         cached = cache_get(url, db_path=db_path)
@@ -562,7 +562,7 @@ def generate_tab_from_url(
 
     guitars = fetch_songsterr_guitar_jsons(url)
     if not guitars:
-        raise ValueError("No se encontraron JSONs de guitarra en la URL dada.")
+        raise ValueError("No guitar JSONs found at the given URL.")
 
     blocks: List[str] = []
     for i, (instrument, name, data) in enumerate(guitars):
@@ -570,7 +570,7 @@ def generate_tab_from_url(
             data,
             instrument,              # Song:
             instrument_name=name,    # Instrument:
-            include_meta=(i == 0),   # sólo la primera lleva Song/Artist/BPM/Time
+            include_meta=(i == 0),   # only the first one carries Song/Artist/BPM/Time
             max_width=max_width,
         )
         blocks.append(block_txt)
@@ -582,39 +582,39 @@ def generate_tab_from_url(
 
     return final_txt
 
-# --- Punto de entrada -------------------------------------------------------
+# --- Entry point -------------------------------------------------------
 
-# v1.2 con caché SQLite
+# v1.2 with SQLite cache
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Convierte JSON de Songsterr a tablatura ASCII."
+        description="Converts Songsterr JSON to ASCII tablature."
     )
-    # json_file ahora es opcional (porque también puedes pasar --url)
+    # json_file is now optional (because you can also pass --url)
     parser.add_argument(
         "json_file",
         nargs="?",
-        help="Ruta al archivo JSON exportado de Songsterr."
+        help="Path to the JSON file exported from Songsterr."
     )
     parser.add_argument(
         "--url",
-        help="URL de Songsterr desde la que extraer automáticamente los JSON de guitarra."
+        help="Songsterr URL from which to automatically extract guitar JSONs."
     )
     parser.add_argument(
         "--wrap",
         action="store_true",
-        help="Envuelve la tablatura por compases según el ancho."
+        help="Wraps the tablature by measures according to width."
     )
     parser.add_argument(
         "--width",
         type=int,
         default=None,
-        help="Ancho máximo en caracteres para --wrap (por defecto, el ancho de la consola)."
+        help="Max width in characters for --wrap (default is console width)."
     )
     args = parser.parse_args()
 
-    # Calculamos el ancho, si hace falta
+    # Calculate width if needed
     max_width: Optional[int] = None
     if args.wrap:
         if args.width is not None:
@@ -622,9 +622,9 @@ if __name__ == "__main__":
         else:
             max_width = shutil.get_terminal_size((80, 20)).columns
 
-    # --- Lógica principal --------------------------------------------------
+    # --- Main logic --------------------------------------------------
     if args.url:
-        # Con caché
+        # With cache
         try:
             final_txt = generate_tab_from_url(
                 args.url,
@@ -636,7 +636,7 @@ if __name__ == "__main__":
             sys.exit(1)
 
     elif args.json_file:
-        # Sin caché (se podría guardar usando una pseudo-url tipo "file://...")
+        # Without cache (could be saved using a pseudo-url like "file://...")
         with open(args.json_file, "r", encoding="utf-8") as f:
             data = json.load(f)
         (instrument, name) = get_instrument_name_from_json(data)
@@ -649,12 +649,12 @@ if __name__ == "__main__":
         )
 
     else:
-        parser.error("Debes pasar un archivo JSON o una URL con --url")
+        parser.error("You must pass a JSON file or a URL with --url")
 
     print(final_txt)
     args = parser.parse_args()
 
-    # Calculamos el ancho, si hace falta
+    # Calculate width if needed
     max_width = None
     if args.wrap:
         if args.width is not None:
@@ -667,16 +667,16 @@ if __name__ == "__main__":
     if args.url:
         guitars = fetch_songsterr_guitar_jsons(args.url)
         if not guitars:
-            print("No se encontraron JSONs de guitarra en la URL dada.", file=sys.stderr)
+            print("No guitar JSONs found at the given URL.", file=sys.stderr)
             sys.exit(1)
 
-        # Una tablatura por guitarra
+        # One tablature per guitar
         for i, (instrument, name, data) in enumerate(guitars):
             block_txt = render_tab(
                 data,
                 instrument,
                 instrument_name=name,
-                include_meta=(i == 0),  # sólo la primera lleva Song/Artist/BPM/Time
+                include_meta=(i == 0),  # only the first one carries Song/Artist/BPM/Time
                 max_width=max_width,
             )
             blocks.append(block_txt)
@@ -695,9 +695,9 @@ if __name__ == "__main__":
             )
         )
     else:
-        parser.error("Debes pasar un archivo JSON o una URL con --url")
+        parser.error("You must pass a JSON file or a URL with --url")
 
-    # Une todas las tablaturas separadas por:
+    # Joins all tablatures separated by:
     #     salto de línea
     #     ---
     #     salto de línea

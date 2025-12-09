@@ -5,11 +5,11 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
-import json2tab  # tu script principal
+import json2tab  # your main script
 
 app = FastAPI(
     title="json2tab API",
-    description="API para convertir URLs de Songsterr en tablaturas ASCII con caché SQLite.",
+    description="API to convert Songsterr URLs to ASCII tablature with SQLite cache.",
     version="1.0.0",
 )
 
@@ -21,16 +21,16 @@ class TabResponse(BaseModel):
 
 @app.get("/tab", response_model=TabResponse)
 def get_tab(
-    url: str = Query(..., description="URL de Songsterr"),
-    wrap: bool = Query(False, description="Aplicar wrap por compases"),
+    url: str = Query(..., description="Songsterr URL"),
+    wrap: bool = Query(False, description="Apply wrap by measures"),
     width: Optional[int] = Query(
         None,
-        description="Ancho máximo en caracteres (si wrap=true). Si no se indica, no se limita.",
+        description="Max width in characters (if wrap=true). If not indicated, it is not limited.",
     ),
 ):
     """
-    Devuelve la tablatura ASCII para la URL de Songsterr indicada.
-    Usa la misma caché SQLite que el CLI de json2tab.py.
+    Returns the ASCII tablature for the indicated Songsterr URL.
+    Uses the same SQLite cache as the json2tab.py CLI.
     """
     max_width: Optional[int] = None
     if wrap:
@@ -40,15 +40,15 @@ def get_tab(
         tab_text = json2tab.generate_tab_from_url(
             url,
             max_width=max_width,
-            use_cache=True,  # siempre usamos caché en la API
+            use_cache=True,  # always use cache in the API
         )
     except ValueError as e:
-        # Por ejemplo: no se encontraron guitarras en esa URL
+        # For example: no guitars found at that URL
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Error generando la tablatura: {e}",
+            detail=f"Error generating tablature: {e}",
         )
 
     return TabResponse(url=url, tab=tab_text)
