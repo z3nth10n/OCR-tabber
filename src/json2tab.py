@@ -1,3 +1,5 @@
+# https://chatgpt.com/c/6937ead5-879c-8329-ae4e-fff773ca4570
+
 import json
 import re
 import time
@@ -195,6 +197,15 @@ def get_instrument_name_from_json(data: Dict[str, Any]) -> str:
     Intenta leer data["instrument"]["name"]. Si no existe,
     devuelve un nombre por defecto.
     """
+    inst = data.get("instrument")
+    if isinstance(inst, str):
+        return inst
+        # name = inst.get("name")
+        # if isinstance(name, str):
+        #     return name
+        
+    return "undefined"
+
 # --- Render a texto tipo tablatura ------------------------------------------
 
 def render_tab(
@@ -406,7 +417,7 @@ def wrap_block(text: str, width: int) -> str:
                 out_lines.append(line[i:i + width])
     return "\n".join(out_lines)
 
-def fetch_songsterr_guitar_jsons(url: str) -> List[Tuple[str, Dict[str, Any]]]:
+def fetch_songsterr_guitar_jsons(url: str) -> List[Tuple[str, str, Dict[str, Any]]]:
     """
     Abre la URL de Songsterr con Selenium, captura las peticiones de red,
     filtra las que van a *.cloudfront.net y acaban en N.json (0.json, 1.json...)
@@ -459,9 +470,9 @@ def fetch_songsterr_guitar_jsons(url: str) -> List[Tuple[str, Dict[str, Any]]]:
         except Exception:
             continue
 
-        inst_name = get_instrument_name_from_json(data)
-        if "guitar" in inst_name.lower():
-            results.append((inst_name, data))
+        (intrument, name) = get_instrument_name_from_json(data)
+        if "guitar" in intrument.lower():
+            results.append((intrument, name, data))
 
     return results
 
