@@ -49,47 +49,60 @@ def duration_to_steps(beat: Dict[str, Any]) -> int:
     return int(steps)
 
 
-def duration_symbol(beat: Dict[str, Any]) -> str:
-    """
-    Devuelve SIEMPRE un solo carácter ASCII para representar la duración,
-    en unidades de negra (1 = negra, 1/2 = corchea, 1/4 = semicorchea, etc.).
+from fractions import Fraction
 
-    Mapeo propuesto (puedes cambiar los símbolos a tu gusto):
-        n : negra (1)
-        c : corchea (1/2)
-        s : semicorchea (1/4)
-        f : fusa (1/8)
-        g : semifusa (1/16)
-        b : blanca (2)
-        r : redonda (4)
-
-        N : negra con puntillo   (3/2)
-        C : corchea con puntillo (3/4)   <-- aquí entra el 3/4
-        S : semicorch. puntillo  (3/8)   <-- aquí entra el "3/16 de redonda" / 3/8 de negra
+def duration_symbol(beat):
     """
+    Devuelve SIEMPRE un solo carácter ASCII para representar la duración
+    en unidades de negra (1 = 1 tiempo, 2 = 2 tiempos, etc).
+
+    Mapeo propuesto:
+        n : negra        (1)
+        c : corchea      (1/2)
+        s : semicorchea  (1/4)
+        f : fusa         (1/8)
+        g : semifusa     (1/16)
+
+        b : blanca       (2 tiempos)
+        h : blanca+punt. (3 tiempos)  <-- sombrero con puntillo
+        r : redonda      (4 tiempos)
+
+        N : negra+punt.  (3/2 tiempos)
+        C : corchea+punt.(3/4 tiempos)
+        S : semicorch.+p.(3/8 tiempos)
+    """
+
     num, den = beat.get("duration", [1, 4])
     frac = Fraction(num, den)
     if beat.get("dotted"):
         frac *= Fraction(3, 2)
 
-    # rel = duración en "negras"
+    # rel = duración en negras (tiempos)
     rel = frac / Fraction(1, 4)
 
     mapping = {
-        Fraction(1, 1): "n",   # negra
-        Fraction(1, 2): "c",   # corchea
-        Fraction(1, 4): "s",   # semicorchea
-        Fraction(1, 8): "f",   # fusa
-        Fraction(1, 16): "g",  # semifusa
-        Fraction(2, 1): "b",   # blanca
-        Fraction(4, 1): "r",   # redonda
+        Fraction(1, 1): "n",   # negra       (1)
+        Fraction(1, 2): "c",   # corchea     (1/2)
+        Fraction(1, 4): "s",   # semicorch.  (1/4)
+        Fraction(1, 8): "f",   # fusa        (1/8)
+        Fraction(1, 16): "g",  # semifusa    (1/16)
 
-        Fraction(3, 2): "N",   # negra con puntillo (3/2)
-        Fraction(3, 4): "C",   # corchea con puntillo (3/4)
-        Fraction(3, 8): "S",   # semicorchea con puntillo (3/8)
+        Fraction(2, 1): "b",   # blanca      (2 tiempos)
+        Fraction(3, 1): "h",   # blanca+punt.(3 tiempos, tu sombrero con puntillo)
+        Fraction(4, 1): "r",   # redonda     (4 tiempos)
+
+        Fraction(3, 2): "N",   # negra+punt. (1.5)
+        Fraction(3, 4): "C",   # corchea+pun.(0.75)
+        Fraction(3, 8): "S",   # semicorch.+.(0.375)
+
+        Fraction(9, 8): "T",   # 1.125 tiempos (p.ej. tresillo / figura compuesta)
+        Fraction(9, 2): "U",   # 4.5 tiempos (nota ligada que pasa de compás)
+        Fraction(1, 6): "x",   # 0.1666... tiempos (sextillo / figura muy corta)
     }
 
-    # Si aparece algo raro (tresillos, etc.), usa un marcador genérico
+    if rel not in mapping:
+        print("Duración no mapeada:", rel, "dur=", beat.get("duration"), "dotted=", beat.get("dotted"))
+
     return mapping.get(rel, "?")
 
 
