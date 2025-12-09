@@ -11,6 +11,7 @@ from typing import List, Dict, Any, Tuple, Optional
 import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+import sqlite3
 
 # Fuerza stdout a UTF-8 para que las fracciones (½, ¼, ¾…) no se rompan
 if hasattr(sys.stdout, "reconfigure"):
@@ -18,6 +19,57 @@ if hasattr(sys.stdout, "reconfigure"):
 else:
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+
+# Ruta por defecto de la base de datos de caché
+CACHE_DB_PATH = "json2tab_cache.db"
+
+
+def init_cache(db_path: str = CACHE_DB_PATH) -> None:
+    """
+    Crea la base de datos y la tabla de caché si no existen.
+    Tabla: cache(id, url, tab)
+    """
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cache (
+            id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            url  TEXT UNIQUE NOT NULL,
+            tab  TEXT NOT NULL
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def cache_get(url: str, db_path: str = CACHE_DB_PATH) -> Optional[str]:
+    """
+    Devuelve el contenido de 'tab' para una url si está en caché,
+    o None si no hay registro.
+    """
+    init_cache(db_path)
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute("SELECT tab FROM cache WHERE url = ?", (url,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def cache_set(url: str, tab: str, db_path: str = CACHE_DB_PATH) -> None:
+    """
+    Inserta o actualiza la caché para una url concreta.
+    """
+    init_cache(db_path)
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT OR REPLACE INTO cache(url, tab) VALUES (?, ?)",
+        (url, tab),
+    )
+    conn.commit()
+    conn.close()
 
 # --- Ajustes de layout globales ---------------------------------------------
 
@@ -423,7 +475,7 @@ def fetch_songsterr_guitar_jsons(url: str) -> List[Tuple[str, str, Dict[str, Any
     Abre la URL de Songsterr con Selenium, captura las peticiones de red,
     filtra las que van a *.cloudfront.net y acaban en N.json (0.json, 1.json...)
     y se queda con aquellas cuyo JSON tenga instrument.name que contenga 'Guitar'.
-
+    
     Devuelve una lista de (instrument_name, data_json).
     """
     chrome_options = Options()
@@ -477,9 +529,51 @@ def fetch_songsterr_guitar_jsons(url: str) -> List[Tuple[str, str, Dict[str, Any
 
     return results
 
+def generate_tab_from_url(
+    url: str,
+    max_width: Optional[int] = None,
+    use_cache: bool = True,
+    db_path: str = CACHE_DB_PATH,
+) -> str:
+    """
+    Dada una URL de Songsterr:
+      - Si use_cache=True, primero mira en la base de datos.
+      - Si no está en caché:
+          * Descarga los JSON de guitarra
+          * Genera la(s) tablatura(s)
+          * Guarda el resultado completo en caché
+      - Devuelve el texto final de la tablatura (posibles varias guitarras separadas por ---).
+    """
+    if use_cache:
+        cached = cache_get(url, db_path=db_path)
+        if cached is not None:
+            return cached
+
+    guitars = fetch_songsterr_guitar_jsons(url)
+    if not guitars:
+        raise ValueError("No se encontraron JSONs de guitarra en la URL dada.")
+
+    blocks: List[str] = []
+    for i, (instrument, name, data) in enumerate(guitars):
+        block_txt = render_tab(
+            data,
+            instrument,              # Song:
+            instrument_name=name,    # Instrument:
+            include_meta=(i == 0),   # sólo la primera lleva Song/Artist/BPM/Time
+            max_width=max_width,
+        )
+        blocks.append(block_txt)
+
+    final_txt = "\n\n---\n\n".join(blocks)
+
+    if use_cache:
+        cache_set(url, final_txt, db_path=db_path)
+
+    return final_txt
+
 # --- Punto de entrada -------------------------------------------------------
 
-# v1.1
+# v1.2 con caché SQLite
 if __name__ == "__main__":
     import argparse
 
@@ -499,7 +593,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--wrap",
         action="store_true",
-        help="Ajusta las líneas al ancho de la consola para evitar scroll horizontal."
+        help="Envuelve la tablatura por compases según el ancho."
     )
     parser.add_argument(
         "--width",
@@ -507,6 +601,46 @@ if __name__ == "__main__":
         default=None,
         help="Ancho máximo en caracteres para --wrap (por defecto, el ancho de la consola)."
     )
+    args = parser.parse_args()
+
+    # Calculamos el ancho, si hace falta
+    max_width: Optional[int] = None
+    if args.wrap:
+        if args.width is not None:
+            max_width = args.width
+        else:
+            max_width = shutil.get_terminal_size((80, 20)).columns
+
+    # --- Lógica principal --------------------------------------------------
+    if args.url:
+        # Con caché
+        try:
+            final_txt = generate_tab_from_url(
+                args.url,
+                max_width=max_width,
+                use_cache=True,
+            )
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
+
+    elif args.json_file:
+        # Sin caché (se podría guardar usando una pseudo-url tipo "file://...")
+        with open(args.json_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        (instrument, name) = get_instrument_name_from_json(data)
+        final_txt = render_tab(
+            data,
+            instrument,
+            instrument_name=name,
+            include_meta=True,
+            max_width=max_width,
+        )
+
+    else:
+        parser.error("Debes pasar un archivo JSON o una URL con --url")
+
+    print(final_txt)
     args = parser.parse_args()
 
     # Calculamos el ancho, si hace falta
