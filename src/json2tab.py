@@ -1,7 +1,17 @@
 import json
 import shutil
+import sys
 from fractions import Fraction
 from typing import List, Dict, Any, Tuple
+
+# Fuerza stdout a UTF-8 para que las fracciones Unicode se vean bien
+if hasattr(sys.stdout, "reconfigure"):
+    # Python 3.7+
+    sys.stdout.reconfigure(encoding="utf-8")
+else:
+    # Fallback para versiones antiguas
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 # --- Ajustes de layout globales ---------------------------------------------
 
@@ -35,31 +45,30 @@ def duration_to_steps(beat: Dict[str, Any]) -> int:
 
 def duration_symbol(beat: Dict[str, Any]) -> str:
     """
-    Devuelve un símbolo ASCII para la duración, relativo a la negra.
-    Ejemplos:
-      negra   -> "1"
-      corchea -> "1/2"
-      semicor -> "1/4"
-      blanca  -> "2"
-      redonda -> "4"
-      negra con puntillo -> "1+1/2"
-      corchea con puntillo -> "3/4"
+    Devuelve un símbolo (normalmente 1 carácter) para la duración,
+    relativo a la negra (1 = negra, 1/2 = corchea, 1/4 = semicorchea...).
+
+    Ojo: usamos caracteres Unicode como '½', '¼', '¾', '⅛', '⅜', etc.
     """
     num, den = beat.get("duration", [1, 4])
     frac = Fraction(num, den)
     if beat.get("dotted"):
         frac *= Fraction(3, 2)
-    rel = frac / Fraction(1, 4)  # en unidades de negra
+
+    # rel = duración en "negras"
+    rel = frac / Fraction(1, 4)
 
     mapping = {
-        Fraction(1, 1): "1",        # negra
-        Fraction(1, 2): "1/2",      # corchea
-        Fraction(1, 4): "1/4",      # semicorchea
-        Fraction(2, 1): "2",        # blanca
-        Fraction(4, 1): "4",        # redonda
-        Fraction(3, 2): "1+1/2",    # negra con puntillo
-        Fraction(3, 4): "3/4",      # corchea con puntillo
-        Fraction(3, 8): "3/8",      # tresillo de corcheas (ejemplo)
+        Fraction(1, 1): "1",   # negra
+        Fraction(1, 2): "½",   # corchea
+        Fraction(1, 4): "¼",   # semicorchea
+        Fraction(1, 8): "⅛",   # fusa
+        Fraction(1, 16): "↯",  # semifusa (aquí ya no hay fracción estándar, inventamos algo si quieres)
+        Fraction(2, 1): "2",   # blanca
+        Fraction(4, 1): "4",   # redonda
+        Fraction(3, 4): "¾",   # corchea con puntillo (3/4 de negra)
+        Fraction(3, 2): "1½",  # negra con puntillo (esto son 2 caracteres, no hay char único)
+        Fraction(3, 8): "⅜",   # tresillo / compuestos raros
     }
 
     return mapping.get(rel, f"{num}/{den}" + ("." if beat.get("dotted") else ""))
