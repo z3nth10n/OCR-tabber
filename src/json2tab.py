@@ -204,120 +204,6 @@ def get_instrument_name_from_json(data: Dict[str, Any]) -> str:
         
     return ("undefined", "undefined")
 
-# --- Render a texto tipo tablatura ------------------------------------------
-
-def render_tab(
-    data: Dict[str, Any],
-    song: str = "OCR Validation",
-    artist: str = "Visual Tab",
-    instrument: Optional[str] = None,
-    instrument_name: Optional[str] = None,
-    include_meta: bool = True,
-) -> str:
-    measures_json = data["measures"]
-    measures_beats, measures_widths = compute_measure_layout(measures_json)
-
-    sig_num, sig_den = find_time_signature(data)
-    bpm = find_bpm(data)
-
-    strings_count = data["strings"]
-    tuning = data["tuning"]
-    string_names = tuning_names_from_midi(tuning)
-
-    # Filas que vamos a construir
-    measure_num_line = ""      # | 1           | 2           | ...
-    pm_line = ""               #   PM----|   PM    PM  ...
-    time_line = ""             #    ½  ½  ½  ...
-    string_lines = {s: "" for s in range(1, strings_count + 1)}
-
-    for idx, (beats, widths) in enumerate(
-        zip(measures_beats, measures_widths),
-        start=1
-    ):
-        measure_width = sum(widths)
-
-        # ---- Línea de números de compás ------------------------------------
-        label = f" {idx}"
-        if len(label) > measure_width:
-            label = label[:measure_width]
-        else:
-            label = label + " " * (measure_width - len(label))
-        measure_num_line += "|" + label
-
-        # ---- Línea de palm mutes -------------------------------------------
-        pm_seg = []
-        for beat, w in zip(beats, widths):
-            if beat["palmMute"]:
-                text = "PM"
-                if len(text) < w:
-                    text += "-" * (w - len(text))
-            else:
-                text = " " * w
-            pm_seg.append(text)
-        pm_line += "|" + "".join(pm_seg)
-
-        # ---- Línea de tiempos (¼, ½, ¼., etc.) -----------------------------
-        t_seg = []
-        for beat, w in zip(beats, widths):
-            sym = duration_symbol(beat)
-            if len(sym) > w:
-                sym = sym[:w]
-            left = (w - len(sym)) // 2
-            right = w - len(sym) - left
-            t_seg.append(" " * left + sym + " " * right)
-        time_line += "|" + "".join(t_seg)
-
-        # ---- Líneas de cuerdas ---------------------------------------------
-        for s in range(1, strings_count + 1):
-            seg_parts = []
-            for beat, w in zip(beats, widths):
-                fret = beat["notes_by_string"].get(s)
-                if fret is None:
-                    seg_parts.append("-" * w)
-                else:
-                    fret_txt = str(fret)
-                    if len(fret_txt) > w:
-                        fret_txt = fret_txt[:w]
-                    seg_parts.append(fret_txt + "-" * (w - len(fret_txt)))
-            string_lines[s] += "|" + "".join(seg_parts)
-
-    # Cierre de la barra final
-    measure_num_line += "|"
-    pm_line += "|"
-    time_line += "|"
-    for s in string_lines:
-        string_lines[s] += "|"
-
-    # --- Montar todo el texto final ----------------------------------------
-
-    out_lines: List[str] = []
-
-    # Metadatos generales (sólo si include_meta = True)
-    if include_meta:
-        out_lines.append(f"Song: {song}")
-        out_lines.append(f"Artist: {artist}")
-        out_lines.append(f"BPM: {bpm}")
-        out_lines.append(f"Time: {sig_num}/{sig_den}")
-        out_lines.append("")
-
-    # Línea de instrumento (siempre que tengamos nombre)
-    if instrument_name:
-        out_lines.append(f"Instrument: {instrument_name}")
-        out_lines.append("")
-
-    # OJO: aquí aplicamos el espacio inicial que comentabas: " |PM", " | 1"
-    out_lines.append(" " + pm_line)
-    out_lines.append(" " + measure_num_line)
-
-    for i, s in enumerate(range(1, strings_count + 1)):
-        name = string_names[i] if i < len(string_names) else f"s{s}"
-        out_lines.append(f"{name}{string_lines[s]}")
-
-    # Si también querías el espacio inicial en la línea de tiempos:
-    out_lines.append(" " + time_line)
-
-    return "\n".join(out_lines) 
-
 def build_tab_segments(data: Dict[str, Any]):
     """
     Devuelve toda la info necesaria para renderizar la tablatura
@@ -396,25 +282,95 @@ def build_tab_segments(data: Dict[str, Any]):
         "strings": segments_strings,
     }
 
-def wrap_block(text: str, width: int) -> str:
-    """
-    Envuelve el texto en bloques de 'width' caracteres.
-    No corta por palabras, corta por columnas para no romper la alineación
-    de la tablatura (todas las líneas se cortan en las mismas posiciones).
-    """
-    if width <= 0:
-        return text
 
-    out_lines = []
-    for line in text.splitlines():
-        # Si la línea ya cabe, la dejamos tal cual
-        if len(line) <= width:
-            out_lines.append(line)
-        else:
-            # Partimos la línea en trozos de 'width' caracteres
-            for i in range(0, len(line), width):
-                out_lines.append(line[i:i + width])
-    return "\n".join(out_lines)
+# --- Render a texto tipo tablatura ------------------------------------------
+
+def render_tab(
+    data: Dict[str, Any],
+    song: str = "OCR Validation",
+    artist: str = "Visual Tab",
+    instrument: Optional[str] = None,
+    instrument_name: Optional[str] = None,
+    include_meta: bool = True,
+    max_width: Optional[int] = None,  # <<--- ancho máximo (para --wrap)
+) -> str:
+    seg = build_tab_segments(data)
+
+    strings_count = seg["strings_count"]
+    string_names = seg["string_names"]
+    measure_count = len(seg["measure_widths"])
+
+    sig_num, sig_den = find_time_signature(data)
+    bpm = find_bpm(data)
+
+    # --- Calcular los rangos de compases por bloque ---
+    # Si no hay max_width, todo en un solo bloque
+    if max_width is None:
+        ranges = [(0, measure_count)]
+    else:
+        ranges: List[Tuple[int, int]] = []
+        i = 0
+        # Dejamos un margen para el prefijo (espacio inicial, "e", "B", etc.)
+        content_limit = max_width - 3
+        if content_limit < 10:
+            content_limit = 10  # mínimo razonable
+
+        pm_segments = seg["pm"]
+
+        while i < measure_count:
+            total = 0
+            j = i
+            while j < measure_count:
+                seg_len = len(pm_segments[j])
+                # +2 por el espacio inicial y la barra final "|"
+                if total + seg_len + 2 > content_limit and j > i:
+                    break
+                total += seg_len
+                j += 1
+                # si ni siquiera cabe un compás, lo forzamos
+                if total + 2 > content_limit and j == i + 1:
+                    break
+
+            ranges.append((i, j))
+            i = j
+
+    # --- Construir las líneas finales, respetando bloques por compases ---
+    out_lines: List[str] = []
+
+    # Metadatos generales (solo una vez por instrument_name)
+    if include_meta:
+        out_lines.append(f"Song: {song}")
+        out_lines.append(f"Artist: {artist}")
+        out_lines.append(f"BPM: {bpm}")
+        out_lines.append(f"Time: {sig_num}/{sig_den}")
+        out_lines.append("")
+
+    if instrument_name:
+        out_lines.append(f"Instrument: {instrument_name}")
+        out_lines.append("")
+
+    for block_index, (start, end) in enumerate(ranges):
+        if block_index > 0:
+            # línea en blanco entre trozos envueltos
+            out_lines.append("")
+
+        pm_line = " " + "".join(seg["pm"][start:end]) + "|"
+        num_line = " " + "".join(seg["measure_num"][start:end]) + "|"
+        time_line = " " + "".join(seg["time"][start:end]) + "|"
+
+        out_lines.append(pm_line)
+        out_lines.append(num_line)
+
+        for i, s in enumerate(range(1, strings_count + 1)):
+            name = string_names[i] if i < len(string_names) else f"s{s}"
+            str_content = "".join(seg["strings"][s][start:end]) + "|"
+            out_lines.append(f"{name}{str_content}")
+
+        out_lines.append(time_line)
+
+    return "\n".join(out_lines) 
+
+
 
 def fetch_songsterr_guitar_jsons(url: str) -> List[Tuple[str, str, Dict[str, Any]]]:
     """
@@ -507,6 +463,14 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # Calculamos el ancho, si hace falta
+    max_width = None
+    if args.wrap:
+        if args.width is not None:
+            max_width = args.width
+        else:
+            max_width = shutil.get_terminal_size((80, 20)).columns
+
     blocks: List[str] = []
 
     if args.url:
@@ -522,6 +486,7 @@ if __name__ == "__main__":
                 instrument,
                 instrument_name=name,
                 include_meta=(i == 0),  # sólo la primera lleva Song/Artist/BPM/Time
+                max_width=max_width,
             )
             blocks.append(block_txt)
 
@@ -535,6 +500,7 @@ if __name__ == "__main__":
                 instrument,
                 instrument_name=name,
                 include_meta=True,
+                max_width=max_width,
             )
         )
     else:
@@ -545,14 +511,6 @@ if __name__ == "__main__":
     #     ---
     #     salto de línea
     final_txt = "\n\n---\n\n".join(blocks)
-
-    # Wrap opcional
-    if args.wrap:
-        if args.width is None:
-            cols = shutil.get_terminal_size((80, 20)).columns
-        else:
-            cols = args.width
-        final_txt = wrap_block(final_txt, cols)
 
     print(final_txt)
 
