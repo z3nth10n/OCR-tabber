@@ -1,4 +1,5 @@
 import json
+import shutil
 from fractions import Fraction
 from typing import List, Dict, Any, Tuple
 
@@ -276,7 +277,27 @@ def render_tab(data: Dict[str, Any],
 
     # Línea de tiempos al final
     out_lines.append(" " + time_line)
+    return "\n".join(out_lines)
 
+
+def wrap_block(text: str, width: int) -> str:
+    """
+    Envuelve el texto en bloques de 'width' caracteres.
+    No corta por palabras, corta por columnas para no romper la alineación
+    de la tablatura (todas las líneas se cortan en las mismas posiciones).
+    """
+    if width <= 0:
+        return text
+
+    out_lines = []
+    for line in text.splitlines():
+        # Si la línea ya cabe, la dejamos tal cual
+        if len(line) <= width:
+            out_lines.append(line)
+        else:
+            # Partimos la línea en trozos de 'width' caracteres
+            for i in range(0, len(line), width):
+                out_lines.append(line[i:i + width])
     return "\n".join(out_lines)
 
 
@@ -284,12 +305,37 @@ def render_tab(data: Dict[str, Any],
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Convierte JSON de Songsterr a tablatura ASCII.")
+    parser = argparse.ArgumentParser(
+        description="Convierte JSON de Songsterr a tablatura ASCII."
+    )
     parser.add_argument("json_file", help="Ruta al archivo JSON exportado de Songsterr.")
+    parser.add_argument(
+        "--wrap",
+        action="store_true",
+        help="Ajusta las líneas al ancho de la consola para evitar scroll horizontal."
+    )
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=None,
+        help="Ancho máximo en caracteres para --wrap (por defecto, el ancho de la consola)."
+    )
     args = parser.parse_args()
 
     with open(args.json_file, "r", encoding="utf-8") as f:
         data = json.load(f)
 
     txt = render_tab(data)
+
+    # ---- APLICAR WRAP OPCIONAL ------------------------------------------
+    if args.wrap:
+        # Si no se ha pasado --width, usamos el ancho de la consola
+        if args.width is None:
+            cols = shutil.get_terminal_size((80, 20)).columns
+        else:
+            cols = args.width
+        txt = wrap_block(txt, cols)
+        
+
+    # print(txt)er_tab(data)
     print(txt)
