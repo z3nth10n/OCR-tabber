@@ -34,16 +34,15 @@ def duration_to_steps(beat: Dict[str, Any]) -> int:
 
 def duration_symbol(beat: Dict[str, Any]) -> str:
     """
-    Convierte la duración a un símbolo rítmico relativo a la negra.
-
+    Devuelve un símbolo ASCII para la duración, relativo a la negra.
     Ejemplos:
       negra   -> "1"
-      corchea -> "½"
-      semicor -> "¼"
+      corchea -> "1/2"
+      semicor -> "1/4"
       blanca  -> "2"
       redonda -> "4"
-      negra con puntillo -> "1½"
-      corchea con puntillo -> "¾"
+      negra con puntillo -> "1+1/2"
+      corchea con puntillo -> "3/4"
     """
     num, den = beat.get("duration", [1, 4])
     frac = Fraction(num, den)
@@ -52,15 +51,16 @@ def duration_symbol(beat: Dict[str, Any]) -> str:
     rel = frac / Fraction(1, 4)  # en unidades de negra
 
     mapping = {
-        Fraction(1, 1): "1",
-        Fraction(1, 2): "½",
-        Fraction(1, 4): "¼",
-        Fraction(2, 1): "2",
-        Fraction(4, 1): "4",
-        Fraction(3, 2): "1½",
-        Fraction(3, 4): "¾",
-        Fraction(3, 8): "⅜",
+        Fraction(1, 1): "1",        # negra
+        Fraction(1, 2): "1/2",      # corchea
+        Fraction(1, 4): "1/4",      # semicorchea
+        Fraction(2, 1): "2",        # blanca
+        Fraction(4, 1): "4",        # redonda
+        Fraction(3, 2): "1+1/2",    # negra con puntillo
+        Fraction(3, 4): "3/4",      # corchea con puntillo
+        Fraction(3, 8): "3/8",      # tresillo de corcheas (ejemplo)
     }
+
     return mapping.get(rel, f"{num}/{den}" + ("." if beat.get("dotted") else ""))
 
 
@@ -265,9 +265,9 @@ def render_tab(data: Dict[str, Any],
     out_lines.append("")
 
     # Línea de PM (puedes añadir 3 espacios delante si quieres que no empiece con '|')
-    out_lines.append(pm_line)
+    out_lines.append(" " + pm_line)
     # Línea de números de compás
-    out_lines.append(measure_num_line)
+    out_lines.append(" " + measure_num_line)
 
     # Cuerdas (Songsterr: string 1 = e aguda arriba)
     for i, s in enumerate(range(1, strings_count + 1)):
@@ -275,7 +275,7 @@ def render_tab(data: Dict[str, Any],
         out_lines.append(f"{name}{string_lines[s]}")
 
     # Línea de tiempos al final
-    out_lines.append(time_line)
+    out_lines.append(" " + time_line)
 
     return "\n".join(out_lines)
 
