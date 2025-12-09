@@ -11,7 +11,10 @@ from typing import List, Dict, Any, Tuple, Optional
 import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 import sqlite3
+
+import os
 
 # Fuerza stdout a UTF-8 para que las fracciones (½, ¼, ¾…) no se rompan
 if hasattr(sys.stdout, "reconfigure"):
@@ -479,11 +482,19 @@ def fetch_songsterr_guitar_jsons(url: str) -> List[Tuple[str, str, Dict[str, Any
     Devuelve una lista de (instrument_name, data_json).
     """
     chrome_options = Options()
-    chrome_options.add_argument("--headless=new")  # quita esto si quieres ver el navegador
+    chrome_options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
+    
+    chrome_options.add_argument("--headless")
+    # chrome_options.add_argument("--headless=new")  # quita esto si quieres ver el navegador
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--remote-debugging-port=9222")
+
     chrome_options.set_capability("goog:loggingPrefs", {"performance": "ALL"})
 
-    driver = webdriver.Chrome(options=chrome_options)
+    service = Service(os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver"))
+    driver = webdriver.Chrome(service=service, options=chrome_options)
     try:
         driver.get(url)
         # pequeño margen para que carguen las peticiones
