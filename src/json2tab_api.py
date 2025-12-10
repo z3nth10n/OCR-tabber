@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Query, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse, HTMLResponse
 from pydantic import BaseModel
 
 import json2tab
@@ -93,7 +94,7 @@ class TabResponse(BaseModel):
     url: str
     tab: str
 
-@app.get("/tab", response_model=TabResponse, dependencies=[Depends(verify_origin)])
+@app.get("/tab", dependencies=[Depends(verify_origin)])
 def get_tab(
     url: str = Query(..., description="Songsterr URL"),
     wrap: bool = Query(False, description="Apply wrap by measures"),
@@ -101,6 +102,7 @@ def get_tab(
         None,
         description="Max width in characters (if wrap=true). If not indicated, it is not limited.",
     ),
+    txt: bool = Query(False, description="Return plain text response"),
 ):
     """
     Returns the ASCII tablature for the indicated Songsterr URL.
@@ -124,6 +126,35 @@ def get_tab(
             status_code=500,
             detail=f"Error generating tablature: {e}",
         )
+
+    if txt:
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>Tablature</title>
+            <style>
+                body {{
+                    background-color: #1e1e1e;
+                    color: #d4d4d4;
+                    margin: 0;
+                    padding: 20px;
+                }}
+                pre {{
+                    font-family: "Consolas", "Courier New", monospace;
+                    font-size: 14px;
+                    white-space: pre; /* Ensures no wrapping */
+                    overflow-x: auto; /* Adds scrollbar if needed */
+                }}
+            </style>
+        </head>
+        <body>
+            <pre>{tab_text}</pre>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=html_content)
 
     return TabResponse(url=url, tab=tab_text)
 
