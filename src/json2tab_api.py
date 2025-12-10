@@ -145,7 +145,6 @@ def get_tab(
                     font-family: "Consolas", "Courier New", monospace;
                     font-size: 14px;
                     white-space: pre; /* Ensures no wrapping */
-                    overflow-x: auto; /* Adds scrollbar if needed */
                 }}
             </style>
         </head>
