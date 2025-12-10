@@ -558,6 +558,27 @@ def fetch_songsterr_guitar_jsons(url: str) -> List[Tuple[str, str, Dict[str, Any
 
     return results
 
+def fetch_song_metadata(song_id: int) -> Tuple[str, str]:
+    """
+    Fetches song metadata (title, artist) from Songsterr API revisions.
+    """
+    url = f"https://www.songsterr.com/api/meta/{song_id}/revisions"
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        revisions = r.json()
+        if not revisions:
+            return "Unknown Song", "Unknown Artist"
+        
+        # Sort by createdAt descending
+        revisions.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
+        latest = revisions[0]
+        
+        return latest.get("title", "Unknown Song"), latest.get("artist", "Unknown Artist")
+    except Exception as e:
+        print(f"Error fetching metadata for songId {song_id}: {e}", file=sys.stderr)
+        return "Unknown Song", "Unknown Artist"
+
 def generate_tab_from_url(
     url: str,
     max_width: Optional[int] = None,
@@ -582,11 +603,25 @@ def generate_tab_from_url(
     if not guitars:
         raise ValueError("No guitar JSONs found at the given URL.")
 
+    # Fetch metadata
+    song_title = "OCR Validation"
+    artist_name = "Visual Tab"
+    
+    try:
+        # Try to get songId from the first track
+        first_data = guitars[0][2]
+        song_id = first_data.get("songId")
+        if song_id:
+            song_title, artist_name = fetch_song_metadata(song_id)
+    except Exception as e:
+        print(f"Warning: could not fetch metadata: {e}", file=sys.stderr)
+
     blocks: List[str] = []
     for i, (instrument, name, data) in enumerate(guitars):
         block_txt = render_tab(
             data,
-            instrument,              # Song:
+            song=song_title,
+            artist=artist_name,
             instrument_name=name,    # Instrument:
             include_meta=(i == 0),   # only the first one carries Song/Artist/BPM/Time
             max_width=max_width,
