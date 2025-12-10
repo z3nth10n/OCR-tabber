@@ -190,11 +190,13 @@ def extract_beats(measure: Dict[str, Any]) -> List[Dict[str, Any]]:
 
             s = note.get("string")
             # JSON sometimes brings string=0 for weird things -> we ignore them
-            if not isinstance(s, int) or s <= 0:
+            if not isinstance(s, int) or s < 0:
                 continue
+            
+            logical_s = s + 1 
 
             has_real_note = True
-            notes_by_string[s] = note.get("fret", 0)
+            notes_by_string[logical_s] = note.get("fret", 0)
 
         # Beat is rest if type is rest or there were no real notes
         is_rest = (beat.get("type") == "rest") or (not has_real_note)
