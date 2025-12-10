@@ -484,7 +484,9 @@ def fetch_songsterr_guitar_jsons(url: str) -> List[Tuple[str, str, Dict[str, Any
     Returns a list of (instrument_name, data_json).
     """
     chrome_options = Options()
-    chrome_options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
+
+    if os.environ.get("DOCKERIZE"):
+        chrome_options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
     
     chrome_options.add_argument("--headless")
     # chrome_options.add_argument("--headless=new")  # remove this if you want to see the browser
@@ -495,8 +497,11 @@ def fetch_songsterr_guitar_jsons(url: str) -> List[Tuple[str, str, Dict[str, Any
 
     chrome_options.set_capability("goog:loggingPrefs", {"performance": "ALL"})
 
-    service = Service(os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver"))
-    driver = webdriver.Chrome(service=service, options=chrome_options)
+    if os.environ.get("DOCKERIZE"):
+        service = Service(os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver"))
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+    else:
+        driver = webdriver.Chrome(options=chrome_options)
     try:
         driver.get(url)
         # small margin for requests to load
