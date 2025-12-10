@@ -403,6 +403,14 @@ def render_tab(
     string_names = seg["string_names"]
     measure_count = len(seg["measure_widths"])
 
+    # Determine actual string names to calculate max length
+    actual_names = []
+    for i, s in enumerate(range(1, strings_count + 1)):
+        name = string_names[i] if i < len(string_names) else f"s{s}"
+        actual_names.append(name)
+    
+    max_name_len = max((len(n) for n in actual_names), default=1)
+
     sig_num, sig_den = find_time_signature(data)
     bpm = find_bpm(data)
 
@@ -414,7 +422,8 @@ def render_tab(
         ranges: List[Tuple[int, int]] = []
         i = 0
         # Leave a margin for the prefix (initial space, "e", "B", etc.)
-        content_limit = max_width - 3
+        # Prefix is max_name_len. Suffix is 1 ("|").
+        content_limit = max_width - (max_name_len + 2)
         if content_limit < 10:
             content_limit = 10  # reasonable minimum
 
@@ -457,17 +466,19 @@ def render_tab(
             # blank line between wrapped chunks
             out_lines.append("")
 
-        pm_line = " " + "".join(seg["pm"][start:end]) + "|"
-        num_line = " " + "".join(seg["measure_num"][start:end]) + "|"
-        time_line = " " + "".join(seg["time"][start:end]) + "|"
+        padding = " " * max_name_len
+        pm_line = padding + "".join(seg["pm"][start:end]) + "|"
+        num_line = padding + "".join(seg["measure_num"][start:end]) + "|"
+        time_line = padding + "".join(seg["time"][start:end]) + "|"
 
         out_lines.append(pm_line)
         out_lines.append(num_line)
 
         for i, s in enumerate(range(1, strings_count + 1)):
-            name = string_names[i] if i < len(string_names) else f"s{s}"
+            name = actual_names[i]
+            padded_name = name.rjust(max_name_len)
             str_content = "".join(seg["strings"][s][start:end]) + "|"
-            out_lines.append(f"{name}{str_content}")
+            out_lines.append(f"{padded_name}{str_content}")
 
         out_lines.append(time_line)
 
