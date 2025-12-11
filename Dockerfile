@@ -11,6 +11,7 @@ ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
 
 WORKDIR /app
 COPY /src .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Port used by uvicorn inside the container
